@@ -217,8 +217,10 @@ async function handleFormSubmission() {
         const pdfBlob = pdfDoc.output('blob');
         const pdfBase64 = await blobToBase64(pdfBlob);
         
-        // Add PDF data separately
+        // Add PDF data separately with chunks
         formData.pdfBase64 = pdfBase64;
+        formData.pdfBase64Chunks = splitBase64(pdfBase64);
+        formData.pdfTotalChunks = formData.pdfBase64Chunks.length;
         formData.pdfFileName = `KT_Form_${formData.employeeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
         
         // Send to webhook
@@ -327,15 +329,31 @@ async function collectAttachments() {
     
     for (const file of files) {
         const base64 = await fileToBase64(file);
+        const base64Chunks = splitBase64(base64);
+        
         attachments.push({
             fileName: file.name,
             fileSize: file.size,
             fileType: file.type,
-            base64Data: base64
+            base64Data: base64,
+            base64Chunks: base64Chunks,
+            totalChunks: base64Chunks.length
         });
     }
     
     return attachments;
+}
+
+// Split base64 data into chunks
+function splitBase64(base64String, chunkSize = 1000000) { // 1MB chunks by default
+    const chunks = [];
+    const dataPart = base64String.split(',')[1]; // Remove data:type;base64, prefix
+    
+    for (let i = 0; i < dataPart.length; i += chunkSize) {
+        chunks.push(dataPart.slice(i, i + chunkSize));
+    }
+    
+    return chunks;
 }
 
 // Convert file to base64
