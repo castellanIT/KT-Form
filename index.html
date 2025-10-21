@@ -137,15 +137,15 @@
                             <textarea name="accessCredentials[]" placeholder="Describe the access and credentials (e.g., System: Company Email, Username: john.doe@company.com, Access Level: Admin)" rows="3" required></textarea>
                             <div class="radio-group">
                                 <label class="radio-label">
-                                    <input type="radio" name="accessAction[]" value="Transfer" required>
+                                    <input type="radio" name="accessAction_initial" value="Transfer" required>
                                     <span class="radio-text">Transfer</span>
                                 </label>
                                 <label class="radio-label">
-                                    <input type="radio" name="accessAction[]" value="Deactivate" required>
+                                    <input type="radio" name="accessAction_initial" value="Deactivate" required>
                                     <span class="radio-text">Deactivate</span>
                                 </label>
                                 <label class="radio-label">
-                                    <input type="radio" name="accessAction[]" value="Transfer and Deactivate" required>
+                                    <input type="radio" name="accessAction_initial" value="Transfer and Deactivate" required>
                                     <span class="radio-text">Transfer and Deactivate</span>
                                 </label>
                             </div>
@@ -161,8 +161,9 @@
                 <h2>Attachments (if any)</h2>
                 <div class="form-group">
                     <label for="attachments">Upload Supporting Documents</label>
-                    <input type="file" id="attachments" name="attachments" multiple accept=".pdf,.doc,.docx,.txt">
-                    <small>Supported formats: PDF, DOC, DOCX, TXT</small>
+                    <input type="file" id="attachments" name="attachments" multiple accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png">
+                    <small>Supported formats: PDF, DOC, DOCX, TXT, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG</small>
+                    <div id="fileList" class="file-list"></div>
                 </div>
             </section>
 

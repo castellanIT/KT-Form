@@ -57,6 +57,9 @@ function initializeDynamicFields() {
     
     // Add access functionality
     document.getElementById('addAccess').addEventListener('click', addAccessRow);
+    
+    // Add file upload functionality
+    initializeFileUpload();
 }
 
 // Add new contact row
@@ -87,19 +90,23 @@ function addAccessRow() {
     const accessList = document.getElementById('accessList');
     const newRow = document.createElement('div');
     newRow.className = 'access-row';
+    
+    // Generate unique name for radio buttons in this row
+    const rowId = Date.now() + Math.random().toString(36).substr(2, 9);
+    
     newRow.innerHTML = `
         <textarea name="accessCredentials[]" placeholder="Describe the access and credentials (e.g., System: Company Email, Username: john.doe@company.com, Access Level: Admin)" rows="3" required></textarea>
         <div class="radio-group">
             <label class="radio-label">
-                <input type="radio" name="accessAction[]" value="Transfer" required>
+                <input type="radio" name="accessAction_${rowId}" value="Transfer" required>
                 <span class="radio-text">Transfer</span>
             </label>
             <label class="radio-label">
-                <input type="radio" name="accessAction[]" value="Deactivate" required>
+                <input type="radio" name="accessAction_${rowId}" value="Deactivate" required>
                 <span class="radio-text">Deactivate</span>
             </label>
             <label class="radio-label">
-                <input type="radio" name="accessAction[]" value="Transfer and Deactivate" required>
+                <input type="radio" name="accessAction_${rowId}" value="Transfer and Deactivate" required>
                 <span class="radio-text">Transfer and Deactivate</span>
             </label>
         </div>
@@ -203,15 +210,15 @@ async function handleFormSubmission() {
     
     try {
         // Collect form data
-        const formData = collectFormData();
+        const formData = await collectFormData();
         
         // Generate PDF
         const pdfDoc = generatePDF(formData);
         const pdfBlob = pdfDoc.output('blob');
         const pdfBase64 = await blobToBase64(pdfBlob);
         
-        // Add PDF to form data
-        formData.pdfDocument = pdfBase64;
+        // Add PDF data separately
+        formData.pdfBase64 = pdfBase64;
         formData.pdfFileName = `KT_Form_${formData.employeeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
         
         // Send to webhook
@@ -231,7 +238,7 @@ async function handleFormSubmission() {
 }
 
 // Collect form data
-function collectFormData() {
+async function collectFormData() {
     const form = document.getElementById('ktForm');
     const formData = new FormData(form);
     
@@ -259,6 +266,9 @@ function collectFormData() {
     
     // Add access array
     data.accessCredentials = collectAccessCredentials();
+    
+    // Add attachments array
+    data.attachments = await collectAttachments();
     
     // Add metadata
     data.submissionDate = new Date().toISOString();
@@ -294,7 +304,8 @@ function collectAccessCredentials() {
     
     accessRows.forEach(row => {
         const credentials = row.querySelector('textarea[name="accessCredentials[]"]').value.trim();
-        const actionRadio = row.querySelector('input[name="accessAction[]"]:checked');
+        // Find the checked radio button in this row (handle both initial and dynamic names)
+        const actionRadio = row.querySelector('input[type="radio"]:checked');
         const action = actionRadio ? actionRadio.value : '';
         
         if (credentials || action) {
@@ -306,6 +317,35 @@ function collectAccessCredentials() {
     });
     
     return access;
+}
+
+// Collect attachments data
+async function collectAttachments() {
+    const fileInput = document.getElementById('attachments');
+    const files = Array.from(fileInput.files);
+    const attachments = [];
+    
+    for (const file of files) {
+        const base64 = await fileToBase64(file);
+        attachments.push({
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            base64Data: base64
+        });
+    }
+    
+    return attachments;
+}
+
+// Convert file to base64
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+    });
 }
 
 // Send data to webhook
@@ -322,7 +362,16 @@ async function sendToWebhook(data) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
     
-    return response.json();
+    // Handle both JSON and text responses
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+        return response.json();
+    } else {
+        // For text responses like "Accepted", just return the text
+        const text = await response.text();
+        console.log('Webhook response:', text);
+        return { status: 'success', message: text };
+    }
 }
 
 // Show success message
@@ -496,6 +545,65 @@ function generatePDF(formData) {
     return doc;
 }
 
+// Initialize file upload functionality
+function initializeFileUpload() {
+    const fileInput = document.getElementById('attachments');
+    const fileList = document.getElementById('fileList');
+    
+    fileInput.addEventListener('change', function(e) {
+        const files = Array.from(e.target.files);
+        displayFileList(files);
+    });
+}
+
+// Display selected files
+function displayFileList(files) {
+    const fileList = document.getElementById('fileList');
+    
+    if (files.length === 0) {
+        fileList.style.display = 'none';
+        return;
+    }
+    
+    fileList.innerHTML = '';
+    fileList.style.display = 'block';
+    
+    files.forEach((file, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.innerHTML = `
+            <span class="file-name">${file.name}</span>
+            <span class="file-size">${formatFileSize(file.size)}</span>
+            <button type="button" class="remove-file" onclick="removeFile(${index})">Remove</button>
+        `;
+        fileList.appendChild(fileItem);
+    });
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Remove file from list
+function removeFile(index) {
+    const fileInput = document.getElementById('attachments');
+    const files = Array.from(fileInput.files);
+    files.splice(index, 1);
+    
+    // Create new FileList
+    const dt = new DataTransfer();
+    files.forEach(file => dt.items.add(file));
+    fileInput.files = dt.files;
+    
+    displayFileList(files);
+}
+
 // Export functions for global access
 window.removeContact = removeContact;
 window.removeAccess = removeAccess;
+window.removeFile = removeFile;

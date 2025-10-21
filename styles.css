@@ -460,3 +460,55 @@ header h1 {
     margin-top: 5px;
     display: block;
 }
+
+/* File List Styles */
+.file-list {
+    margin-top: 10px;
+    padding: 10px;
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    display: none;
+}
+
+.file-list.show {
+    display: block;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin: 5px 0;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.file-name {
+    flex: 1;
+    color: #374151;
+}
+
+.file-size {
+    color: #6b7280;
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+.remove-file {
+    background-color: #dc2626;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+.remove-file:hover {
+    background-color: #b91c1c;
+}
