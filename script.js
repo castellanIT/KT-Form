@@ -217,8 +217,10 @@ async function handleFormSubmission() {
         const pdfBlob = pdfDoc.output('blob');
         const pdfBase64 = await blobToBase64(pdfBlob);
         
-        // Add PDF data separately
-        formData.pdfBase64 = pdfBase64;
+        // Add PDF data separately with split MIME type and content
+        const { mimeType: pdfMimeType, base64Content: pdfBase64Content } = splitBase64Data(pdfBase64);
+        formData.pdfMimeType = pdfMimeType;
+        formData.pdfBase64Content = pdfBase64Content;
         formData.pdfFileName = `KT_Form_${formData.employeeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
         
         // Send to webhook
@@ -327,16 +329,27 @@ async function collectAttachments() {
     
     for (const file of files) {
         const base64 = await fileToBase64(file);
+        const { mimeType, base64Content } = splitBase64Data(base64);
         
         attachments.push({
             fileName: file.name,
             fileSize: file.size,
             fileType: file.type,
-            base64Data: base64
+            mimeType: mimeType,
+            base64Content: base64Content
         });
     }
     
     return attachments;
+}
+
+// Split base64 data into MIME type and content
+function splitBase64Data(base64String) {
+    const [mimeType, base64Content] = base64String.split(',');
+    return {
+        mimeType: mimeType,
+        base64Content: base64Content
+    };
 }
 
 
