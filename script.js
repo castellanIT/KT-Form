@@ -4,7 +4,7 @@ let isSubmitting = false;
 const { jsPDF } = window.jspdf;
 
 // Webhook URL - Replace with your actual webhook URL
-const WEBHOOK_URL = 'https://your-webhook-url.com/endpoint';
+const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
