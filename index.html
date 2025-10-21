@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Transfer (KT) Form - Employee Exit Process</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Knowledge Transfer (KT) Form - Employee Exit Process</h1>
+        </header>
+
+        <form id="ktForm" class="kt-form">
+            <!-- Section 1: Employee Details -->
+            <section class="form-section">
+                <h2>Section 1: Employee Details</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="employeeName">Employee Name *</label>
+                        <input type="text" id="employeeName" name="employeeName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="designation">Designation / Role *</label>
+                        <input type="text" id="designation" name="designation" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="department">Department / Team *</label>
+                        <input type="text" id="department" name="department" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="reportingManagerName">Reporting Manager Name *</label>
+                        <input type="text" id="reportingManagerName" name="reportingManagerName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reportingManagerEmail">Reporting Manager Email *</label>
+                        <input type="email" id="reportingManagerEmail" name="reportingManagerEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="employeeId">Employee ID (if applicable)</label>
+                        <input type="text" id="employeeId" name="employeeId">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="dateOfJoining">Date of Joining *</label>
+                        <input type="date" id="dateOfJoining" name="dateOfJoining" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="lastWorkingDay">Last Working Day *</label>
+                        <input type="date" id="lastWorkingDay" name="lastWorkingDay" required>
+                    </div>
+                    <div class="form-group">
+                        <!-- Empty div for spacing -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 2: Knowledge Transfer Overview -->
+            <section class="form-section">
+                <h2>Section 2: Knowledge Transfer Overview</h2>
+                <div class="form-group">
+                    <label for="currentResponsibilities">Current Responsibilities *</label>
+                    <textarea id="currentResponsibilities" name="currentResponsibilities" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="ongoingProjects">Ongoing Projects / Tasks *</label>
+                    <textarea id="ongoingProjects" name="ongoingProjects" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="toolsSystems">Tools / Systems Used *</label>
+                    <textarea id="toolsSystems" name="toolsSystems" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="keyDocuments">Key Documents / Files Location *</label>
+                    <textarea id="keyDocuments" name="keyDocuments" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="sops">Standard Operating Procedures (SOPs) *</label>
+                    <textarea id="sops" name="sops" rows="4" required></textarea>
+                </div>
+            </section>
+
+            <!-- Section 3: Key Contacts -->
+            <section class="form-section">
+                <h2>Section 3: Key Contacts</h2>
+                <div class="contacts-container">
+                    <div class="contact-header">
+                        <div class="contact-field">Name</div>
+                        <div class="contact-field">Contact Email</div>
+                        <div class="contact-field">Actions</div>
+                    </div>
+                    <div id="contactsList">
+                        <div class="contact-row">
+                            <input type="text" name="contactName[]" placeholder="Full Name" required>
+                            <input type="email" name="contactEmail[]" placeholder="email@example.com" required>
+                            <button type="button" class="remove-contact" onclick="removeContact(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addContact" class="add-contact-btn">Add Contact</button>
+                </div>
+            </section>
+
+            <!-- Section 4: Handover Details -->
+            <section class="form-section">
+                <h2>Section 4: Handover Details</h2>
+                <div class="form-group">
+                    <label for="successor">Successor / Replacement (if identified)</label>
+                    <input type="text" id="successor" name="successor">
+                </div>
+                <div class="form-group">
+                    <label for="areasHandedOver">Areas Fully Handed Over *</label>
+                    <textarea id="areasHandedOver" name="areasHandedOver" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="areasPending">Areas Pending (with reason) *</label>
+                    <textarea id="areasPending" name="areasPending" rows="4" required></textarea>
+                </div>
+            </section>
+
+            <!-- Section 5: Access & Credentials -->
+            <section class="form-section">
+                <h2>Section 5: Access & Credentials</h2>
+                <div class="access-container">
+                    <div class="access-header">
+                        <div class="access-field">Access & Credentials</div>
+                        <div class="access-field">Action Required</div>
+                        <div class="access-field">Actions</div>
+                    </div>
+                    <div id="accessList">
+                        <div class="access-row">
+                            <textarea name="accessCredentials[]" placeholder="Describe the access and credentials (e.g., System: Company Email, Username: john.doe@company.com, Access Level: Admin)" rows="3" required></textarea>
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="accessAction[]" value="Transfer" required>
+                                    <span class="radio-text">Transfer</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="accessAction[]" value="Deactivate" required>
+                                    <span class="radio-text">Deactivate</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="accessAction[]" value="Transfer and Deactivate" required>
+                                    <span class="radio-text">Transfer and Deactivate</span>
+                                </label>
+                            </div>
+                            <button type="button" class="remove-access" onclick="removeAccess(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addAccess" class="add-access-btn">Add Access</button>
+                </div>
+            </section>
+
+            <!-- Attachments Section -->
+            <section class="form-section">
+                <h2>Attachments (if any)</h2>
+                <div class="form-group">
+                    <label for="attachments">Upload Supporting Documents</label>
+                    <input type="file" id="attachments" name="attachments" multiple accept=".pdf,.doc,.docx,.txt">
+                    <small>Supported formats: PDF, DOC, DOCX, TXT</small>
+                </div>
+            </section>
+
+            <!-- Section 6: Digital Signatures -->
+            <section class="form-section">
+                <h2>Section 6: Digital Signatures</h2>
+                
+                <!-- Employee Signature -->
+                <div class="signature-group">
+                    <h3>Employee Signature</h3>
+                    <div class="signature-container">
+                        <canvas id="employeeSignature" class="signature-canvas"></canvas>
+                        <div class="signature-controls">
+                            <button type="button" id="clearEmployeeSignature" class="clear-signature">Clear Signature</button>
+                        </div>
+                    </div>
+                    <div class="signature-info">
+                        <label for="employeeSignatureDate">Date:</label>
+                        <input type="date" id="employeeSignatureDate" name="employeeSignatureDate" required>
+                    </div>
+                </div>
+
+                <!-- Manager Sign-off Placeholder -->
+                <div class="signature-group">
+                    <h3>Reporting Manager Sign-off</h3>
+                    <div class="signature-placeholder">
+                        <p>Manager signature will be captured here after form submission</p>
+                        <div class="placeholder-signature">
+                            <div class="placeholder-text">Manager Signature Placeholder</div>
+                        </div>
+                    </div>
+                    <div class="signature-info">
+                        <label for="managerSignatureDate">Date:</label>
+                        <input type="date" id="managerSignatureDate" name="managerSignatureDate" disabled>
+                    </div>
+                </div>
+
+                <!-- HR Sign-off Placeholder -->
+                <div class="signature-group">
+                    <h3>HR Representative Sign-off</h3>
+                    <div class="signature-placeholder">
+                        <p>HR signature will be captured here after form submission</p>
+                        <div class="placeholder-signature">
+                            <div class="placeholder-text">HR Signature Placeholder</div>
+                        </div>
+                    </div>
+                    <div class="signature-info">
+                        <label for="hrSignatureDate">Date:</label>
+                        <input type="date" id="hrSignatureDate" name="hrSignatureDate" disabled>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Submit Button -->
+            <div class="form-actions">
+                <button type="submit" class="submit-btn">Submit Knowledge Transfer Form</button>
+            </div>
+        </form>
+
+        <!-- Success Message -->
+        <div id="successMessage" class="success-message" style="display: none;">
+            <h3>Form Submitted Successfully!</h3>
+            <p>Your knowledge transfer form has been submitted. The form will be forwarded to your reporting manager and HR for their signatures.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "kt-form",
+  "version": "1.0.0",
+  "description": "Knowledge Transfer Form - Employee Exit Process",
+  "main": "index.html",
+  "scripts": {
+    "dev": "live-server --port=3000 --open=/index.html",
+    "start": "live-server --port=3000 --open=/index.html",
+    "build": "echo 'No build process needed for static files'",
+    "serve": "live-server --port=8080 --open=/index.html"
+  },
+  "keywords": [
+    "knowledge-transfer",
+    "form",
+    "employee-exit",
+    "digital-signature",
+    "webhook"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  },
+  "dependencies": {
+    "signature_pad": "^4.0.0"
+  }
+}
