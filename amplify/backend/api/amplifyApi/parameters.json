@@ -1,0 +1,36 @@
+{
+  "paths": {
+    "/make-proxy": {
+      "get": {
+        "x-amazon-apigateway-any-method": {
+          "x-amazon-apigateway-integration": {
+            "type": "aws_proxy",
+            "uri": {
+              "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:makeProxy"
+            }
+          }
+        }
+      },
+      "post": {
+        "x-amazon-apigateway-any-method": {
+          "x-amazon-apigateway-integration": {
+            "type": "aws_proxy",
+            "uri": {
+              "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:makeProxy"
+            }
+          }
+        }
+      },
+      "options": {
+        "x-amazon-apigateway-any-method": {
+          "x-amazon-apigateway-integration": {
+            "type": "aws_proxy",
+            "uri": {
+              "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:makeProxy"
+            }
+          }
+        }
+      }
+    }
+  }
+}
