@@ -370,10 +370,43 @@ async function sendToWebhook(data) {
         console.log('Sending data to webhook:', data);
         console.log('Data size:', JSON.stringify(data).length, 'characters');
         
-        // Check if data is too large (over 10MB)
+        // Check if data is too large (over 5MB)
         const dataSize = JSON.stringify(data).length;
-        if (dataSize > 10000000) {
-            console.warn('Data size is very large:', dataSize, 'characters. This might cause issues.');
+        if (dataSize > 5000000) {
+            console.warn('Data size is very large:', dataSize, 'characters. Optimizing payload...');
+            
+            // Create optimized payload without large base64 data
+            const optimizedData = {
+                ...data,
+                // Remove large base64 data and replace with metadata
+                attachments: data.attachments ? data.attachments.map(att => ({
+                    fileName: att.fileName,
+                    fileSize: att.fileSize,
+                    fileType: att.fileType,
+                    // Remove base64Content to reduce size
+                    hasData: !!att.base64Content
+                })) : [],
+                // Keep PDF metadata but remove base64
+                pdfFileName: data.pdfFileName,
+                pdfMimeType: data.pdfMimeType,
+                // Remove pdfBase64Content to reduce size
+                hasPdfData: !!data.pdfBase64Content
+            };
+            
+            console.log('Optimized data size:', JSON.stringify(optimizedData).length, 'characters');
+            
+            // Send optimized payload
+            const response = await fetch(WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(optimizedData)
+            });
+            
+            console.log('Optimized webhook request sent');
+            return { status: 'success', message: 'Data sent to webhook (optimized for size)' };
         }
         
         // Try to send the request - CORS will likely block it, but the request might still go through
@@ -575,7 +608,22 @@ function initializeFileUpload() {
     
     fileInput.addEventListener('change', function(e) {
         const files = Array.from(e.target.files);
-        displayFileList(files);
+        
+        // Check file sizes (limit to 2MB per file)
+        const maxSize = 2 * 1024 * 1024; // 2MB
+        const oversizedFiles = files.filter(file => file.size > maxSize);
+        
+        if (oversizedFiles.length > 0) {
+            alert(`Some files are too large (max 2MB each):\n${oversizedFiles.map(f => f.name).join('\n')}`);
+            // Remove oversized files
+            const validFiles = files.filter(file => file.size <= maxSize);
+            const dt = new DataTransfer();
+            validFiles.forEach(file => dt.items.add(file));
+            fileInput.files = dt.files;
+            displayFileList(validFiles);
+        } else {
+            displayFileList(files);
+        }
     });
 }
 

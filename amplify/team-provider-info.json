@@ -16,6 +16,7 @@
           "RestApiRootResourceId": "your-root-resource-id"
         }
       }
-    }
+    },
+    "awscloudformation": {}
   }
 }
