@@ -1,4 +1,4 @@
-const AWS = require('aws-sdk');
+const https = require('https');
 
 exports.handler = async (event) => {
     // Handle CORS preflight
@@ -30,15 +30,37 @@ exports.handler = async (event) => {
         // Parse the incoming request body
         const requestBody = JSON.parse(event.body);
         
-        // Forward to Make.com webhook
+        // Forward to Make.com webhook using https module
         const webhookUrl = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
         
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
+        const postData = JSON.stringify(requestBody);
+        
+        const response = await new Promise((resolve, reject) => {
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+            
+            const req = https.request(webhookUrl, options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    resolve({
+                        status: res.statusCode,
+                        ok: res.statusCode >= 200 && res.statusCode < 300,
+                        text: () => Promise.resolve(data)
+                    });
+                });
+            });
+            
+            req.on('error', reject);
+            req.write(postData);
+            req.end();
         });
 
         const responseText = await response.text();

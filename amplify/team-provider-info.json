@@ -1,0 +1,21 @@
+{
+  "dev": {
+    "categories": {
+      "function": {
+        "makeProxy": {
+          "makeProxyLambdaFunction": {
+            "Name": "makeProxyLambdaFunction",
+            "LambdaExecutionRole": "makeProxyLambdaRole",
+            "LambdaExecutionRoleArn": "arn:aws:iam::123456789012:role/makeProxyLambdaRole"
+          }
+        }
+      },
+      "api": {
+        "amplifyApi": {
+          "RestApiId": "your-rest-api-id",
+          "RestApiRootResourceId": "your-root-resource-id"
+        }
+      }
+    }
+  }
+}

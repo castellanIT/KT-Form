@@ -1,0 +1,60 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Lambda function for Make.com webhook proxy",
+  "Parameters": {
+    "env": {
+      "Type": "String",
+      "Default": "dev"
+    }
+  },
+  "Resources": {
+    "makeProxyLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "makeProxyLambdaFunction",
+        "Runtime": "nodejs18.x",
+        "Handler": "index.handler",
+        "Code": {
+          "ZipFile": {
+            "Fn::Sub": [
+              "const https = require('https');\n\nexports.handler = async (event) => {\n    if (event.httpMethod === 'OPTIONS') {\n        return {\n            statusCode: 200,\n            headers: {\n                'Access-Control-Allow-Origin': 'https://main.d20lkin2kvtjbb.amplifyapp.com',\n                'Access-Control-Allow-Methods': 'POST, OPTIONS',\n                'Access-Control-Allow-Headers': 'Content-Type, Authorization',\n                'Access-Control-Max-Age': '86400'\n            },\n            body: ''\n        };\n    }\n\n    if (event.httpMethod !== 'POST') {\n        return {\n            statusCode: 405,\n            headers: {\n                'Access-Control-Allow-Origin': 'https://main.d20lkin2kvtjbb.amplifyapp.com'\n            },\n            body: JSON.stringify({ error: 'Method Not Allowed' })\n        };\n    }\n\n    try {\n        const requestBody = JSON.parse(event.body);\n        const webhookUrl = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';\n        const postData = JSON.stringify(requestBody);\n        \n        const response = await new Promise((resolve, reject) => {\n            const options = {\n                method: 'POST',\n                headers: {\n                    'Content-Type': 'application/json',\n                    'Content-Length': Buffer.byteLength(postData)\n                }\n            };\n            \n            const req = https.request(webhookUrl, options, (res) => {\n                let data = '';\n                res.on('data', (chunk) => { data += chunk; });\n                res.on('end', () => {\n                    resolve({\n                        status: res.statusCode,\n                        ok: res.statusCode >= 200 && res.statusCode < 300,\n                        text: () => Promise.resolve(data)\n                    });\n                });\n            });\n            \n            req.on('error', reject);\n            req.write(postData);\n            req.end();\n        });\n\n        const responseText = await response.text();\n\n        return {\n            statusCode: response.status,\n            headers: {\n                'Access-Control-Allow-Origin': 'https://main.d20lkin2kvtjbb.amplifyapp.com',\n                'Content-Type': 'application/json'\n            },\n            body: JSON.stringify({\n                success: response.ok,\n                status: response.status,\n                message: responseText\n            })\n        };\n\n    } catch (error) {\n        console.error('Proxy error:', error);\n        \n        return {\n            statusCode: 500,\n            headers: {\n                'Access-Control-Allow-Origin': 'https://main.d20lkin2kvtjbb.amplifyapp.com',\n                'Content-Type': 'application/json'\n            },\n            body: JSON.stringify({\n                success: false,\n                error: 'Internal server error',\n                message: error.message\n            })\n        };\n    }\n};",
+              {}
+            ]
+          }
+        },
+        "Role": {
+          "Fn::GetAtt": ["makeProxyLambdaRole", "Arn"]
+        },
+        "Timeout": 30
+      }
+    },
+    "makeProxyLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "makeProxyLambdaRole",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "makeProxyLambdaFunctionArn": {
+      "Value": {
+        "Fn::GetAtt": ["makeProxyLambdaFunction", "Arn"]
+      }
+    }
+  }
+}
