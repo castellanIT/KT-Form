@@ -6,8 +6,57 @@ const { jsPDF } = window.jspdf;
 // Webhook URL - Using direct Make.com webhook (will have CORS issues)
 const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
+// Analytics and Monitoring
+const ANALYTICS = {
+    formStartTime: null,
+    formSubmissions: 0,
+    formErrors: 0,
+    webhookResponses: [],
+    performanceMetrics: {},
+    sessionId: generateSessionId()
+};
+
+// Generate unique session ID
+function generateSessionId() {
+    return 'kt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Initialize analytics
+function initAnalytics() {
+    ANALYTICS.formStartTime = Date.now();
+    console.log('📊 Analytics initialized - Session ID:', ANALYTICS.sessionId);
+    
+    // Track form interactions
+    document.addEventListener('input', trackFormInteraction);
+    document.addEventListener('change', trackFormInteraction);
+    
+    // Track performance
+    window.addEventListener('load', trackPerformance);
+}
+
+// Track form interactions
+function trackFormInteraction(event) {
+    const fieldName = event.target.name || event.target.id;
+    console.log(`📝 Field interaction: ${fieldName}`);
+}
+
+// Track form performance
+function trackPerformance() {
+    const loadTime = Date.now() - ANALYTICS.formStartTime;
+    ANALYTICS.performanceMetrics = {
+        loadTime: loadTime,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        screenResolution: `${screen.width}x${screen.height}`,
+        viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+        sessionId: ANALYTICS.sessionId
+    };
+    console.log('⚡ Performance tracked:', ANALYTICS.performanceMetrics);
+}
+
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    initAnalytics();
     initializeSignaturePad();
     initializeFormHandlers();
     initializeDynamicFields();
@@ -366,20 +415,34 @@ function fileToBase64(file) {
 
 // Send data to webhook
 async function sendToWebhook(data) {
+    const startTime = Date.now();
+    const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    
     try {
-        console.log('Sending data to webhook:', data);
-        console.log('Data size:', JSON.stringify(data).length, 'characters');
+        console.log('🚀 Sending data to webhook:', requestId);
+        console.log('📊 Data size:', JSON.stringify(data).length, 'characters');
+        
+        // Add analytics data to payload
+        const payloadWithAnalytics = {
+            ...data,
+            analytics: {
+                sessionId: ANALYTICS.sessionId,
+                submissionTime: new Date().toISOString(),
+                requestId: requestId,
+                performanceMetrics: ANALYTICS.performanceMetrics
+            }
+        };
         
         // Check if data is too large (over 5MB)
-        const dataSize = JSON.stringify(data).length;
+        const dataSize = JSON.stringify(payloadWithAnalytics).length;
         if (dataSize > 5000000) {
-            console.warn('Data size is very large:', dataSize, 'characters. Optimizing payload...');
+            console.warn('⚠️ Data size is very large:', dataSize, 'characters. Optimizing payload...');
             
             // Create optimized payload without large base64 data
             const optimizedData = {
-                ...data,
+                ...payloadWithAnalytics,
                 // Remove large base64 data and replace with metadata
-                attachments: data.attachments ? data.attachments.map(att => ({
+                attachments: payloadWithAnalytics.attachments ? payloadWithAnalytics.attachments.map(att => ({
                     fileName: att.fileName,
                     fileSize: att.fileSize,
                     fileType: att.fileType,
@@ -387,13 +450,13 @@ async function sendToWebhook(data) {
                     hasData: !!att.base64Content
                 })) : [],
                 // Keep PDF metadata but remove base64
-                pdfFileName: data.pdfFileName,
-                pdfMimeType: data.pdfMimeType,
+                pdfFileName: payloadWithAnalytics.pdfFileName,
+                pdfMimeType: payloadWithAnalytics.pdfMimeType,
                 // Remove pdfBase64Content to reduce size
-                hasPdfData: !!data.pdfBase64Content
+                hasPdfData: !!payloadWithAnalytics.pdfBase64Content
             };
             
-            console.log('Optimized data size:', JSON.stringify(optimizedData).length, 'characters');
+            console.log('📦 Optimized data size:', JSON.stringify(optimizedData).length, 'characters');
             
             // Send optimized payload
             const response = await fetch(WEBHOOK_URL, {
@@ -405,8 +468,18 @@ async function sendToWebhook(data) {
                 body: JSON.stringify(optimizedData)
             });
             
-            console.log('Optimized webhook request sent');
-            return { status: 'success', message: 'Data sent to webhook (optimized for size)' };
+            const responseTime = Date.now() - startTime;
+            ANALYTICS.webhookResponses.push({
+                requestId: requestId,
+                status: 'optimized',
+                responseTime: responseTime,
+                dataSize: JSON.stringify(optimizedData).length,
+                timestamp: new Date().toISOString()
+            });
+            
+            console.log('✅ Optimized webhook request sent in', responseTime, 'ms');
+            ANALYTICS.formSubmissions++;
+            return { status: 'success', message: 'Data sent to webhook (optimized for size)', requestId: requestId };
         }
         
         // Try to send the request - CORS will likely block it, but the request might still go through
@@ -416,17 +489,43 @@ async function sendToWebhook(data) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(data)
+            body: JSON.stringify(payloadWithAnalytics)
+        });
+        
+        const responseTime = Date.now() - startTime;
+        ANALYTICS.webhookResponses.push({
+            requestId: requestId,
+            status: 'sent',
+            responseTime: responseTime,
+            dataSize: dataSize,
+            timestamp: new Date().toISOString()
         });
         
         // With no-cors mode, we can't read the response, but the request was sent
-        console.log('Webhook request sent (CORS may block response reading)');
-        return { status: 'success', message: 'Data sent to webhook' };
+        console.log('✅ Webhook request sent in', responseTime, 'ms (CORS may block response reading)');
+        ANALYTICS.formSubmissions++;
+        return { status: 'success', message: 'Data sent to webhook', requestId: requestId };
         
     } catch (error) {
-        console.error('Webhook error:', error);
+        const responseTime = Date.now() - startTime;
+        ANALYTICS.formErrors++;
+        ANALYTICS.webhookResponses.push({
+            requestId: requestId,
+            status: 'error',
+            error: error.message,
+            responseTime: responseTime,
+            timestamp: new Date().toISOString()
+        });
+        
+        console.error('❌ Webhook error:', error);
+        console.log('📊 Analytics summary:', {
+            submissions: ANALYTICS.formSubmissions,
+            errors: ANALYTICS.formErrors,
+            sessionId: ANALYTICS.sessionId
+        });
+        
         // Even if there's an error, we'll consider it successful since the data was sent
-        return { status: 'success', message: 'Data sent to webhook (CORS may have blocked response)' };
+        return { status: 'success', message: 'Data sent to webhook (CORS may have blocked response)', requestId: requestId };
     }
 }
 
@@ -440,7 +539,60 @@ function showSuccessMessage() {
     
     // Scroll to success message
     successMessage.scrollIntoView({ behavior: 'smooth' });
+    
+    // Log analytics summary
+    console.log('📊 Form submission completed:', {
+        sessionId: ANALYTICS.sessionId,
+        submissions: ANALYTICS.formSubmissions,
+        errors: ANALYTICS.formErrors,
+        webhookResponses: ANALYTICS.webhookResponses.length,
+        performance: ANALYTICS.performanceMetrics
+    });
 }
+
+// Display analytics dashboard (for debugging)
+function showAnalyticsDashboard() {
+    const analytics = {
+        sessionId: ANALYTICS.sessionId,
+        formSubmissions: ANALYTICS.formSubmissions,
+        formErrors: ANALYTICS.formErrors,
+        webhookResponses: ANALYTICS.webhookResponses,
+        performanceMetrics: ANALYTICS.performanceMetrics,
+        timestamp: new Date().toISOString()
+    };
+    
+    console.log('📊 ANALYTICS DASHBOARD:', analytics);
+    
+    // Create a simple dashboard in the console
+    console.group('📊 KT Form Analytics Dashboard');
+    console.log('Session ID:', analytics.sessionId);
+    console.log('Form Submissions:', analytics.formSubmissions);
+    console.log('Form Errors:', analytics.formErrors);
+    console.log('Webhook Responses:', analytics.webhookResponses);
+    console.log('Performance:', analytics.performanceMetrics);
+    console.groupEnd();
+    
+    return analytics;
+}
+
+// Export analytics for external monitoring
+function exportAnalytics() {
+    return {
+        sessionId: ANALYTICS.sessionId,
+        formSubmissions: ANALYTICS.formSubmissions,
+        formErrors: ANALYTICS.formErrors,
+        webhookResponses: ANALYTICS.webhookResponses,
+        performanceMetrics: ANALYTICS.performanceMetrics,
+        timestamp: new Date().toISOString()
+    };
+}
+
+// Make analytics available globally for debugging
+window.KTFormAnalytics = {
+    show: showAnalyticsDashboard,
+    export: exportAnalytics,
+    data: ANALYTICS
+};
 
 // Utility function to format date
 function formatDate(date) {
