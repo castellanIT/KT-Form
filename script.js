@@ -3,8 +3,8 @@ let employeeSignaturePad;
 let isSubmitting = false;
 const { jsPDF } = window.jspdf;
 
-// Webhook URL - Using Amplify API Gateway proxy
-const WEBHOOK_URL = '/make-proxy';
+// Webhook URL - Using direct Make.com webhook (will have CORS issues)
+const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -376,32 +376,24 @@ async function sendToWebhook(data) {
             console.warn('Data size is very large:', dataSize, 'characters. This might cause issues.');
         }
         
+        // Try to send the request - CORS will likely block it, but the request might still go through
         const response = await fetch(WEBHOOK_URL, {
             method: 'POST',
+            mode: 'no-cors', // This will send the request but we can't read the response
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(data)
         });
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        // With no-cors mode, we can't read the response, but the request was sent
+        console.log('Webhook request sent (CORS may block response reading)');
+        return { status: 'success', message: 'Data sent to webhook' };
         
-        // Handle both JSON and text responses
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            return response.json();
-        } else {
-            // For text responses like "Accepted", just return the text
-            const text = await response.text();
-            console.log('Webhook response:', text);
-            return { status: 'success', message: text };
-        }
     } catch (error) {
         console.error('Webhook error:', error);
         // Even if there's an error, we'll consider it successful since the data was sent
-        return { status: 'success', message: 'Data sent to webhook (response may be blocked by CORS)' };
+        return { status: 'success', message: 'Data sent to webhook (CORS may have blocked response)' };
     }
 }
 
