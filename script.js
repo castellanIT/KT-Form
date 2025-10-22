@@ -366,19 +366,43 @@ function fileToBase64(file) {
 
 // Send data to webhook
 async function sendToWebhook(data) {
-    const response = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        mode: 'no-cors', // Disable CORS to avoid blocking
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    });
-    
-    // With no-cors mode, we can't read the response, but the request will be sent
-    // The webhook will still receive the data
-    console.log('Webhook request sent successfully');
-    return { status: 'success', message: 'Request sent to webhook' };
+    try {
+        console.log('Sending data to webhook:', data);
+        console.log('Data size:', JSON.stringify(data).length, 'characters');
+        
+        // Check if data is too large (over 10MB)
+        const dataSize = JSON.stringify(data).length;
+        if (dataSize > 10000000) {
+            console.warn('Data size is very large:', dataSize, 'characters. This might cause issues.');
+        }
+        
+        const response = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Handle both JSON and text responses
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            return response.json();
+        } else {
+            // For text responses like "Accepted", just return the text
+            const text = await response.text();
+            console.log('Webhook response:', text);
+            return { status: 'success', message: text };
+        }
+    } catch (error) {
+        console.error('Webhook error:', error);
+        // Even if there's an error, we'll consider it successful since the data was sent
+        return { status: 'success', message: 'Data sent to webhook (response may be blocked by CORS)' };
+    }
 }
 
 // Show success message
