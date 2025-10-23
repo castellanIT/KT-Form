@@ -12,16 +12,29 @@ const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i'
 // Initialize AWS S3
 let s3Client = null;
 function initializeS3() {
+    // Check if S3_CONFIG is available (config.js loaded successfully)
+    if (typeof S3_CONFIG === 'undefined') {
+        console.warn('⚠️ S3_CONFIG not available - config.js not loaded or missing');
+        console.log('📝 S3 functionality will be disabled, but form will work normally');
+        return;
+    }
+    
     if (typeof AWS !== 'undefined') {
-        AWS.config.update({
-            accessKeyId: S3_CONFIG.accessKeyId,
-            secretAccessKey: S3_CONFIG.secretAccessKey,
-            region: S3_CONFIG.region
-        });
-        s3Client = new AWS.S3();
-        console.log('✅ S3 client initialized');
+        try {
+            AWS.config.update({
+                accessKeyId: S3_CONFIG.accessKeyId,
+                secretAccessKey: S3_CONFIG.secretAccessKey,
+                region: S3_CONFIG.region
+            });
+            s3Client = new AWS.S3();
+            console.log('✅ S3 client initialized');
+        } catch (error) {
+            console.warn('⚠️ S3 initialization failed:', error.message);
+            console.log('📝 S3 functionality will be disabled, but form will work normally');
+        }
     } else {
         console.warn('⚠️ AWS SDK not loaded');
+        console.log('📝 S3 functionality will be disabled, but form will work normally');
     }
 }
 
@@ -373,21 +386,35 @@ async function handleFormSubmission() {
         console.log(`📄 PDF filename: ${formData.pdfFileName}`);
         console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
         
-        // Upload files to S3
-        console.log('📤 Starting S3 uploads...');
-        const s3Uploads = await uploadAllFilesToS3(formData);
-        
-        // Check if PDF was successfully generated and uploaded
-        if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
-            console.error('❌ PDF generation or upload failed:');
-            console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
-            console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
-            console.error('   - PDF filename:', formData.pdfFileName);
-            throw new Error('PDF generation or upload failed - cannot proceed with webhook submission');
+        // Upload files to S3 (if available)
+        let s3Uploads = null;
+        if (s3Client) {
+            console.log('📤 Starting S3 uploads...');
+            s3Uploads = await uploadAllFilesToS3(formData);
+            
+            // Check if PDF was successfully generated and uploaded
+            if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
+                console.error('❌ PDF generation or upload failed:');
+                console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
+                console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
+                console.error('   - PDF filename:', formData.pdfFileName);
+                throw new Error('PDF generation or upload failed - cannot proceed with webhook submission');
+            }
+        } else {
+            console.log('⚠️ S3 not available - skipping file uploads');
+            s3Uploads = {
+                attachments: [],
+                pdf: null,
+                signature: null
+            };
         }
         
-        console.log('✅ PDF successfully generated and uploaded to S3');
-        console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
+        if (s3Client && s3Uploads.pdf) {
+            console.log('✅ PDF successfully generated and uploaded to S3');
+            console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
+        } else {
+            console.log('⚠️ PDF generated but not uploaded to S3 (S3 unavailable)');
+        }
         
         // Create webhook payload with S3 URLs instead of base64 data
         const webhookPayload = {
