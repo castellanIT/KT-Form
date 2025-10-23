@@ -76,6 +76,9 @@ function trackPerformance() {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 DOM Content Loaded - Initializing application...');
+    console.log('🌍 Environment:', window.location.hostname);
+    console.log('📅 Build Date:', new Date().toISOString());
+    
     initAnalytics();
     initializeS3();
     initializeSignaturePad();
