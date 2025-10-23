@@ -422,9 +422,49 @@ async function sendToWebhook(data) {
         console.log('🚀 Sending data to webhook:', requestId);
         console.log('📊 Data size:', JSON.stringify(data).length, 'characters');
         
-        // Add analytics data to payload
-        const payloadWithAnalytics = {
-            ...data,
+        // Create structured payload with separated large data
+        const structuredPayload = {
+            // Core form data
+            formData: {
+                employeeName: data.employeeName,
+                designation: data.designation,
+                department: data.department,
+                reportingManagerName: data.reportingManagerName,
+                reportingManagerEmail: data.reportingManagerEmail,
+                employeeId: data.employeeId,
+                dateOfJoining: data.dateOfJoining,
+                lastWorkingDay: data.lastWorkingDay,
+                currentResponsibilities: data.currentResponsibilities,
+                ongoingProjects: data.ongoingProjects,
+                toolsSystems: data.toolsSystems,
+                keyDocuments: data.keyDocuments,
+                sops: data.sops,
+                successor: data.successor,
+                areasHandedOver: data.areasHandedOver,
+                areasPending: data.areasPending,
+                employeeSignatureDate: data.employeeSignatureDate,
+                submissionDate: data.submissionDate,
+                formVersion: data.formVersion
+            },
+            // Contacts array
+            contacts: data.contacts || [],
+            // Access credentials array
+            accessCredentials: data.accessCredentials || [],
+            // Attachments metadata (without base64)
+            attachments: data.attachments ? data.attachments.map(att => ({
+                fileName: att.fileName,
+                fileSize: att.fileSize,
+                fileType: att.fileType,
+                mimeType: att.mimeType,
+                hasData: !!att.base64Content
+            })) : [],
+            // PDF metadata (without base64)
+            pdf: {
+                fileName: data.pdfFileName,
+                mimeType: data.pdfMimeType,
+                hasData: !!data.pdfBase64Content
+            },
+            // Analytics
             analytics: {
                 sessionId: ANALYTICS.sessionId,
                 submissionTime: new Date().toISOString(),
@@ -433,63 +473,18 @@ async function sendToWebhook(data) {
             }
         };
         
-        // Check if data is too large (over 5MB)
-        const dataSize = JSON.stringify(payloadWithAnalytics).length;
-        if (dataSize > 5000000) {
-            console.warn('⚠️ Data size is very large:', dataSize, 'characters. Optimizing payload...');
-            
-            // Create optimized payload without large base64 data
-            const optimizedData = {
-                ...payloadWithAnalytics,
-                // Remove large base64 data and replace with metadata
-                attachments: payloadWithAnalytics.attachments ? payloadWithAnalytics.attachments.map(att => ({
-                    fileName: att.fileName,
-                    fileSize: att.fileSize,
-                    fileType: att.fileType,
-                    // Remove base64Content to reduce size
-                    hasData: !!att.base64Content
-                })) : [],
-                // Keep PDF metadata but remove base64
-                pdfFileName: payloadWithAnalytics.pdfFileName,
-                pdfMimeType: payloadWithAnalytics.pdfMimeType,
-                // Remove pdfBase64Content to reduce size
-                hasPdfData: !!payloadWithAnalytics.pdfBase64Content
-            };
-            
-            console.log('📦 Optimized data size:', JSON.stringify(optimizedData).length, 'characters');
-            
-            // Send optimized payload
-            const response = await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(optimizedData)
-            });
-            
-            const responseTime = Date.now() - startTime;
-            ANALYTICS.webhookResponses.push({
-                requestId: requestId,
-                status: 'optimized',
-                responseTime: responseTime,
-                dataSize: JSON.stringify(optimizedData).length,
-                timestamp: new Date().toISOString()
-            });
-            
-            console.log('✅ Optimized webhook request sent in', responseTime, 'ms');
-            ANALYTICS.formSubmissions++;
-            return { status: 'success', message: 'Data sent to webhook (optimized for size)', requestId: requestId };
-        }
+        // Check payload size
+        const dataSize = JSON.stringify(structuredPayload).length;
+        console.log('📦 Structured payload size:', dataSize, 'characters');
         
-        // Try to send the request - CORS will likely block it, but the request might still go through
+        // Send structured payload
         const response = await fetch(WEBHOOK_URL, {
             method: 'POST',
             mode: 'no-cors', // This will send the request but we can't read the response
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(payloadWithAnalytics)
+            body: JSON.stringify(structuredPayload)
         });
         
         const responseTime = Date.now() - startTime;
@@ -502,9 +497,17 @@ async function sendToWebhook(data) {
         });
         
         // With no-cors mode, we can't read the response, but the request was sent
-        console.log('✅ Webhook request sent in', responseTime, 'ms (CORS may block response reading)');
+        console.log('✅ Structured webhook request sent in', responseTime, 'ms (CORS may block response reading)');
+        console.log('📊 Payload structure:', {
+            formData: Object.keys(structuredPayload.formData).length + ' fields',
+            contacts: structuredPayload.contacts.length,
+            accessCredentials: structuredPayload.accessCredentials.length,
+            attachments: structuredPayload.attachments.length,
+            hasPdf: structuredPayload.pdf.hasData,
+            hasSignature: data.employeeSignature ? 'Yes' : 'No'
+        });
         ANALYTICS.formSubmissions++;
-        return { status: 'success', message: 'Data sent to webhook', requestId: requestId };
+        return { status: 'success', message: 'Structured data sent to webhook', requestId: requestId };
         
     } catch (error) {
         const responseTime = Date.now() - startTime;
@@ -593,6 +596,24 @@ window.KTFormAnalytics = {
     export: exportAnalytics,
     data: ANALYTICS
 };
+
+// Function to send large data separately if needed
+async function sendLargeDataSeparately(formData, requestId) {
+    const largeData = {
+        requestId: requestId,
+        employeeSignature: formData.employeeSignature,
+        pdfBase64Content: formData.pdfBase64Content,
+        attachments: formData.attachments ? formData.attachments.map(att => ({
+            fileName: att.fileName,
+            base64Content: att.base64Content
+        })) : []
+    };
+    
+    console.log('📎 Large data size:', JSON.stringify(largeData).length, 'characters');
+    console.log('📎 This data can be sent separately if needed for processing');
+    
+    return largeData;
+}
 
 // Utility function to format date
 function formatDate(date) {
@@ -727,18 +748,20 @@ function generatePDF(formData) {
     // Add signature image if available
     if (formData.employeeSignature) {
         try {
-            // Add signature image
-            const img = new Image();
-            img.onload = function() {
-                const imgWidth = 100;
-                const imgHeight = 40;
-                doc.addImage(formData.employeeSignature, 'PNG', margin, yPosition, imgWidth, imgHeight);
-            };
-            img.src = formData.employeeSignature;
+            console.log('Adding signature to PDF:', formData.employeeSignature.substring(0, 50) + '...');
+            const imgWidth = 100;
+            const imgHeight = 40;
+            doc.addImage(formData.employeeSignature, 'PNG', margin, yPosition, imgWidth, imgHeight);
             yPosition += 50;
+            console.log('Signature added to PDF successfully');
         } catch (error) {
             console.error('Error adding signature to PDF:', error);
+            // Add a placeholder text if signature fails
+            yPosition = addField('Employee Signature', '[Signature captured but could not be embedded]', yPosition);
         }
+    } else {
+        console.log('No signature data found for PDF');
+        yPosition = addField('Employee Signature', '[No signature provided]', yPosition);
     }
     
     // Add footer
