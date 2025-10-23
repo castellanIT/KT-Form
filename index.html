@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- AWS SDK CDN -->
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1691.0.min.js"></script>
+    <!-- AWS Configuration (SECURE) -->
+    <script src="config.js"></script>
 </head>
 <body>
     <div class="container">
@@ -97,8 +101,8 @@
                     </div>
                     <div id="contactsList">
                         <div class="contact-row">
-                            <input type="text" name="contactName[]" placeholder="Full Name" required>
-                            <input type="email" name="contactEmail[]" placeholder="email@example.com" required>
+                            <input type="text" name="contactName[]" placeholder="Full Name" class="large-input" required>
+                            <input type="email" name="contactEmail[]" placeholder="email@example.com" class="large-input" required>
                             <button type="button" class="remove-contact" onclick="removeContact(this)">Remove</button>
                         </div>
                     </div>
@@ -163,7 +167,7 @@
                     <label for="attachments">Upload Supporting Documents</label>
                     <input type="file" id="attachments" name="attachments" multiple accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png">
                     <small>Supported formats: PDF, DOC, DOCX, TXT, XLS, XLSX, PPT, PPTX, JPG, JPEG, PNG<br>
-                    <strong>File size limit: 2MB per file</strong></small>
+                    <strong>File size limit: 5MB per file</strong></small>
                     <div id="fileList" class="file-list"></div>
                 </div>
             </section>
@@ -187,35 +191,6 @@
                     </div>
                 </div>
 
-                <!-- Manager Sign-off Placeholder -->
-                <div class="signature-group">
-                    <h3>Reporting Manager Sign-off</h3>
-                    <div class="signature-placeholder">
-                        <p>Manager signature will be captured here after form submission</p>
-                        <div class="placeholder-signature">
-                            <div class="placeholder-text">Manager Signature Placeholder</div>
-                        </div>
-                    </div>
-                    <div class="signature-info">
-                        <label for="managerSignatureDate">Date:</label>
-                        <input type="date" id="managerSignatureDate" name="managerSignatureDate" disabled>
-                    </div>
-                </div>
-
-                <!-- HR Sign-off Placeholder -->
-                <div class="signature-group">
-                    <h3>HR Representative Sign-off</h3>
-                    <div class="signature-placeholder">
-                        <p>HR signature will be captured here after form submission</p>
-                        <div class="placeholder-signature">
-                            <div class="placeholder-text">HR Signature Placeholder</div>
-                        </div>
-                    </div>
-                    <div class="signature-info">
-                        <label for="hrSignatureDate">Date:</label>
-                        <input type="date" id="hrSignatureDate" name="hrSignatureDate" disabled>
-                    </div>
-                </div>
             </section>
 
             <!-- Submit Button -->
@@ -226,8 +201,41 @@
 
         <!-- Success Message -->
         <div id="successMessage" class="success-message" style="display: none;">
-            <h3>Form Submitted Successfully!</h3>
-            <p>Your knowledge transfer form has been submitted. The form will be forwarded to your reporting manager and HR for their signatures.</p>
+            <div class="success-container">
+                <div class="success-icon">✅</div>
+                <h2>Knowledge Transfer Form Submitted Successfully!</h2>
+                <div class="success-details">
+                    <div class="success-item">
+                        <span class="success-label">Form Status:</span>
+                        <span class="success-value">Submitted</span>
+                    </div>
+                    <div class="success-item">
+                        <span class="success-label">Submission Date:</span>
+                        <span class="success-value" id="submissionDate"></span>
+                    </div>
+                    <div class="success-item">
+                        <span class="success-label">PDF Generated:</span>
+                        <span class="success-value">✅ Yes</span>
+                    </div>
+                    <div class="success-item">
+                        <span class="success-label">Files Uploaded:</span>
+                        <span class="success-value">✅ Yes</span>
+                    </div>
+                </div>
+                <div class="success-note">
+                    <p><strong>Next Steps:</strong></p>
+                    <ul>
+                        <li>Your form has been submitted to the system</li>
+                        <li>A PDF copy has been generated with your digital signature</li>
+                        <li>All attachments have been uploaded successfully</li>
+                        <li>You will receive a confirmation email shortly</li>
+                    </ul>
+                </div>
+                <div class="success-actions">
+                    <button onclick="window.location.reload()" class="btn-secondary">Submit Another Form</button>
+                    <button onclick="window.print()" class="btn-primary">Print Confirmation</button>
+                </div>
+            </div>
         </div>
     </div>
 

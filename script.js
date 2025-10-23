@@ -6,6 +6,25 @@ const { jsPDF } = window.jspdf;
 // Webhook URL - Using direct Make.com webhook (will have CORS issues)
 const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
+// S3 Configuration is loaded from config.js file
+// The config.js file contains the actual AWS credentials and is excluded from Git
+
+// Initialize AWS S3
+let s3Client = null;
+function initializeS3() {
+    if (typeof AWS !== 'undefined') {
+        AWS.config.update({
+            accessKeyId: S3_CONFIG.accessKeyId,
+            secretAccessKey: S3_CONFIG.secretAccessKey,
+            region: S3_CONFIG.region
+        });
+        s3Client = new AWS.S3();
+        console.log('✅ S3 client initialized');
+    } else {
+        console.warn('⚠️ AWS SDK not loaded');
+    }
+}
+
 // Analytics and Monitoring
 const ANALYTICS = {
     formStartTime: null,
@@ -57,6 +76,7 @@ function trackPerformance() {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initAnalytics();
+    initializeS3();
     initializeSignaturePad();
     initializeFormHandlers();
     initializeDynamicFields();
@@ -118,8 +138,8 @@ function addContactRow() {
     const newRow = document.createElement('div');
     newRow.className = 'contact-row';
     newRow.innerHTML = `
-        <input type="text" name="contactName[]" placeholder="Full Name" required>
-        <input type="email" name="contactEmail[]" placeholder="email@example.com" required>
+        <input type="text" name="contactName[]" placeholder="Full Name" class="large-input" required>
+        <input type="email" name="contactEmail[]" placeholder="email@example.com" class="large-input" required>
         <button type="button" class="remove-contact" onclick="removeContact(this)">Remove</button>
     `;
     contactsList.appendChild(newRow);
@@ -202,8 +222,9 @@ function showFieldError(field, message) {
 
 // Clear field error
 function clearFieldError(field) {
+    if (!field) return; // Safety check
     field.classList.remove('error');
-    const errorMessage = field.parentNode.querySelector('.error-message');
+    const errorMessage = field.parentNode?.querySelector('.error-message');
     if (errorMessage) {
         errorMessage.remove();
     }
@@ -263,9 +284,13 @@ async function handleFormSubmission() {
         const formData = await collectFormData();
         
         // Generate PDF
+        console.log('📄 Generating PDF...');
         const pdfDoc = generatePDF(formData);
         const pdfBlob = pdfDoc.output('blob');
+        console.log(`📄 PDF generated, size: ${pdfBlob.size} bytes`);
+        
         const pdfBase64 = await blobToBase64(pdfBlob);
+        console.log(`📄 PDF base64 length: ${pdfBase64.length}`);
         
         // Add PDF data separately with split MIME type and content
         const { mimeType: pdfMimeType, base64Content: pdfBase64Content } = splitBase64Data(pdfBase64);
@@ -273,8 +298,64 @@ async function handleFormSubmission() {
         formData.pdfBase64Content = pdfBase64Content;
         formData.pdfFileName = `KT_Form_${formData.employeeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
         
-        // Send to webhook
-        await sendToWebhook(formData);
+        console.log(`📄 PDF filename: ${formData.pdfFileName}`);
+        console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
+        
+        // Upload files to S3
+        console.log('📤 Starting S3 uploads...');
+        const s3Uploads = await uploadAllFilesToS3(formData);
+        
+        // Check if PDF was successfully generated and uploaded
+        if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
+            console.error('❌ PDF generation or upload failed:');
+            console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
+            console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
+            console.error('   - PDF filename:', formData.pdfFileName);
+            throw new Error('PDF generation or upload failed - cannot proceed with webhook submission');
+        }
+        
+        console.log('✅ PDF successfully generated and uploaded to S3');
+        console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
+        
+        // Create webhook payload with S3 URLs instead of base64 data
+        const webhookPayload = {
+            formData: {
+                employeeName: formData.employeeName,
+                designation: formData.designation,
+                department: formData.department,
+                reportingManagerName: formData.reportingManagerName,
+                reportingManagerEmail: formData.reportingManagerEmail,
+                employeeId: formData.employeeId,
+                dateOfJoining: formData.dateOfJoining,
+                lastWorkingDay: formData.lastWorkingDay,
+                currentResponsibilities: formData.currentResponsibilities,
+                ongoingProjects: formData.ongoingProjects,
+                toolsSystems: formData.toolsSystems,
+                keyDocuments: formData.keyDocuments,
+                sops: formData.sops,
+                successor: formData.successor,
+                areasHandedOver: formData.areasHandedOver,
+                areasPending: formData.areasPending,
+                employeeSignatureDate: formData.employeeSignatureDate,
+                submissionDate: formData.submissionDate,
+                formVersion: formData.formVersion
+            },
+            contacts: formData.contacts || [],
+            accessCredentials: formData.accessCredentials || [],
+            // S3 URLs instead of base64 data
+            attachments: s3Uploads.attachments,
+            pdf: s3Uploads.pdf,
+            employeeSignature: s3Uploads.signature,
+            analytics: {
+                sessionId: ANALYTICS.sessionId,
+                submissionTime: new Date().toISOString(),
+                performanceMetrics: ANALYTICS.performanceMetrics
+            }
+        };
+        
+        // Send to webhook only if PDF is successfully generated
+        console.log('🚀 Sending webhook with complete data including PDF...');
+        await sendToWebhook(webhookPayload);
         
         // Show success message
         showSuccessMessage();
@@ -395,7 +476,18 @@ async function collectAttachments() {
 
 // Split base64 data into MIME type and content
 function splitBase64Data(base64String) {
-    const [mimeType, base64Content] = base64String.split(',');
+    const commaIndex = base64String.indexOf(',');
+    if (commaIndex === -1) {
+        // No comma found, treat as raw base64
+        return {
+            mimeType: 'application/octet-stream',
+            base64Content: base64String
+        };
+    }
+    
+    const mimeType = base64String.substring(0, commaIndex);
+    const base64Content = base64String.substring(commaIndex + 1);
+    
     return {
         mimeType: mimeType,
         base64Content: base64Content
@@ -422,7 +514,7 @@ async function sendToWebhook(data) {
         console.log('🚀 Sending data to webhook:', requestId);
         console.log('📊 Data size:', JSON.stringify(data).length, 'characters');
         
-        // Create structured payload with separated large data
+        // Create structured payload with base64 data included
         const structuredPayload = {
             // Core form data
             formData: {
@@ -450,20 +542,16 @@ async function sendToWebhook(data) {
             contacts: data.contacts || [],
             // Access credentials array
             accessCredentials: data.accessCredentials || [],
-            // Attachments metadata (without base64)
-            attachments: data.attachments ? data.attachments.map(att => ({
-                fileName: att.fileName,
-                fileSize: att.fileSize,
-                fileType: att.fileType,
-                mimeType: att.mimeType,
-                hasData: !!att.base64Content
-            })) : [],
-            // PDF metadata (without base64)
+            // Attachments with base64 data
+            attachments: data.attachments || [],
+            // PDF with base64 data
             pdf: {
                 fileName: data.pdfFileName,
                 mimeType: data.pdfMimeType,
-                hasData: !!data.pdfBase64Content
+                base64Content: data.pdfBase64Content
             },
+            // Employee signature
+            employeeSignature: data.employeeSignature,
             // Analytics
             analytics: {
                 sessionId: ANALYTICS.sessionId,
@@ -477,6 +565,30 @@ async function sendToWebhook(data) {
         const dataSize = JSON.stringify(structuredPayload).length;
         console.log('📦 Structured payload size:', dataSize, 'characters');
         
+        // If payload is too large, create optimized version
+        let payloadToSend = structuredPayload;
+        if (dataSize > 10000000) { // 10MB limit
+            console.warn('⚠️ Payload too large, creating optimized version...');
+            payloadToSend = {
+                ...structuredPayload,
+                // Remove large base64 data but keep metadata
+                attachments: structuredPayload.attachments.map(att => ({
+                    fileName: att.fileName,
+                    fileSize: att.fileSize,
+                    fileType: att.fileType,
+                    mimeType: att.mimeType,
+                    hasData: !!att.base64Content
+                })),
+                pdf: {
+                    fileName: structuredPayload.pdf.fileName,
+                    mimeType: structuredPayload.pdf.mimeType,
+                    hasData: !!structuredPayload.pdf.base64Content
+                },
+                employeeSignature: structuredPayload.employeeSignature ? '[Signature captured]' : null
+            };
+            console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
+        }
+        
         // Send structured payload
         const response = await fetch(WEBHOOK_URL, {
             method: 'POST',
@@ -484,7 +596,7 @@ async function sendToWebhook(data) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(structuredPayload)
+            body: JSON.stringify(payloadToSend)
         });
         
         const responseTime = Date.now() - startTime;
@@ -536,9 +648,15 @@ async function sendToWebhook(data) {
 function showSuccessMessage() {
     const form = document.getElementById('ktForm');
     const successMessage = document.getElementById('successMessage');
+    const submissionDateElement = document.getElementById('submissionDate');
     
     form.style.display = 'none';
     successMessage.style.display = 'block';
+    
+    // Set the submission date
+    if (submissionDateElement) {
+        submissionDateElement.textContent = new Date().toLocaleString();
+    }
     
     // Scroll to success message
     successMessage.scrollIntoView({ behavior: 'smooth' });
@@ -597,6 +715,158 @@ window.KTFormAnalytics = {
     data: ANALYTICS
 };
 
+// S3 Upload Functions
+async function uploadToS3(file, fileName, contentType) {
+    if (!s3Client) {
+        throw new Error('S3 client not initialized');
+    }
+    
+    const key = `kt-forms/${Date.now()}-${fileName}`;
+    const params = {
+        Bucket: S3_CONFIG.bucketName,
+        Key: key,
+        Body: file,
+        ContentType: contentType,
+        ACL: 'private' // Make files private by default
+    };
+    
+    try {
+        console.log(`📤 Uploading ${fileName} to S3...`);
+        const result = await s3Client.upload(params).promise();
+        
+        // Construct the regional S3 URL
+        const regionalUrl = `https://${S3_CONFIG.bucketName}.s3.${S3_CONFIG.region}.amazonaws.com/${result.Key}`;
+        
+        console.log(`✅ Upload successful: ${regionalUrl}`);
+        return {
+            url: regionalUrl,      // Return the regional S3 object URL
+            key: result.Key,       // Return the key from S3 response
+            bucket: result.Bucket  // Return the bucket from S3 response
+        };
+    } catch (error) {
+        console.error(`❌ S3 upload failed for ${fileName}:`, error);
+        throw error;
+    }
+}
+
+async function uploadFileToS3(file) {
+    return await uploadToS3(file, file.name, file.type);
+}
+
+async function uploadBase64ToS3(base64Data, fileName, contentType) {
+    try {
+        console.log(`🔍 Processing base64 for ${fileName}:`, {
+            dataLength: base64Data?.length,
+            hasComma: base64Data?.includes(','),
+            contentType: contentType
+        });
+        
+        // Convert base64 to blob
+        let base64Content = base64Data;
+        
+        // Remove data URL prefix if present
+        if (base64Data.includes(',')) {
+            base64Content = base64Data.split(',')[1];
+        }
+        
+        // Clean the base64 string (remove any whitespace/newlines)
+        base64Content = base64Content.replace(/\s/g, '');
+        
+        console.log(`🔍 Cleaned base64 length: ${base64Content.length}`);
+        
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: contentType });
+        
+        console.log(`✅ Created blob for ${fileName}:`, { size: blob.size, type: blob.type });
+        
+        return await uploadToS3(blob, fileName, contentType);
+    } catch (error) {
+        console.error('❌ Base64 conversion failed:', error);
+        console.error('❌ Base64 data sample:', base64Data?.substring(0, 100));
+        throw new Error(`Failed to convert base64 data: ${error.message}`);
+    }
+}
+
+// Function to upload all files to S3
+async function uploadAllFilesToS3(formData) {
+    const uploadResults = {
+        attachments: [],
+        pdf: null,
+        signature: null
+    };
+    
+    try {
+        // Upload attachments
+        if (formData.attachments && formData.attachments.length > 0) {
+            console.log('📤 Uploading attachments to S3...');
+            for (const attachment of formData.attachments) {
+                if (attachment.base64Content) {
+                    const uploadResult = await uploadBase64ToS3(
+                        attachment.base64Content,
+                        attachment.fileName,
+                        attachment.fileType
+                    );
+                    console.log(`🔗 S3 Object URL for ${attachment.fileName}: ${uploadResult.url}`);
+                    uploadResults.attachments.push({
+                        fileName: attachment.fileName,
+                        fileSize: attachment.fileSize,
+                        fileType: attachment.fileType,
+                        s3Url: uploadResult.url,
+                        s3Key: uploadResult.key
+                    });
+                }
+            }
+        }
+        
+        // Upload PDF
+        if (formData.pdfBase64Content) {
+            console.log('📤 Uploading PDF to S3...');
+            console.log(`📤 PDF base64 content length: ${formData.pdfBase64Content.length}`);
+            console.log(`📤 PDF filename: ${formData.pdfFileName}`);
+            
+            const pdfUpload = await uploadBase64ToS3(
+                formData.pdfBase64Content,
+                formData.pdfFileName,
+                'application/pdf'
+            );
+            console.log(`🔗 S3 Object URL for PDF: ${pdfUpload.url}`);
+            uploadResults.pdf = {
+                fileName: formData.pdfFileName,
+                s3Url: pdfUpload.url,
+                s3Key: pdfUpload.key
+            };
+        } else {
+            console.warn('⚠️ No PDF base64 content found - PDF generation may have failed');
+        }
+        
+        // Upload signature
+        if (formData.employeeSignature) {
+            console.log('📤 Uploading signature to S3...');
+            const signatureUpload = await uploadBase64ToS3(
+                formData.employeeSignature,
+                `signature-${Date.now()}.png`,
+                'image/png'
+            );
+            console.log(`🔗 S3 Object URL for Signature: ${signatureUpload.url}`);
+            uploadResults.signature = {
+                s3Url: signatureUpload.url,
+                s3Key: signatureUpload.key
+            };
+        }
+        
+        console.log('✅ All files uploaded to S3 successfully');
+        return uploadResults;
+        
+    } catch (error) {
+        console.error('❌ S3 upload failed:', error);
+        throw error;
+    }
+}
+
 // Function to send large data separately if needed
 async function sendLargeDataSeparately(formData, requestId) {
     const largeData = {
@@ -634,12 +904,37 @@ function blobToBase64(blob) {
     });
 }
 
+// Helper function to add company logo (if available)
+function addCompanyLogo(doc, margin, yPosition, logoAreaHeight) {
+    // Castellan Real Estate Group logo
+    const hasLogo = true;
+    const logoBase64 = 'data:image/jpeg;base64,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';
+    
+    if (hasLogo && logoBase64) {
+        try {
+            doc.addImage(logoBase64, 'JPEG', margin, yPosition, 60, logoAreaHeight);
+            return true;
+        } catch (error) {
+            console.warn('Could not add logo to PDF:', error);
+        }
+    }
+    
+    // Fallback: Draw placeholder
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(245, 245, 245);
+    doc.rect(margin, yPosition, 60, logoAreaHeight, 'FD');
+    doc.setFontSize(8);
+    doc.setTextColor(128, 128, 128);
+    doc.text('LOGO', margin + 20, yPosition + 25);
+    return false;
+}
+
 // Generate PDF from form data
 function generatePDF(formData) {
     const doc = new jsPDF();
-    let yPosition = 20;
+    let yPosition = 15;
     const pageWidth = doc.internal.pageSize.width;
-    const margin = 20;
+    const margin = 25; // Increased margins for better appearance
     const contentWidth = pageWidth - (margin * 2);
     
     // Helper function to add text with word wrapping
@@ -672,14 +967,40 @@ function generatePDF(formData) {
         return yPosition + 3;
     }
     
-    // Title
-    doc.setFontSize(18);
+    // Company Logo Area (placeholder for logo)
+    const logoAreaHeight = 40;
+    const logoAreaY = yPosition;
+    
+    // Add company logo (or placeholder)
+    addCompanyLogo(doc, margin, logoAreaY, logoAreaHeight);
+    
+    // Company Title
+    doc.setFontSize(20);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(37, 99, 235);
-    yPosition = addText('Knowledge Transfer (KT) Form - Employee Exit Process', margin, yPosition, contentWidth, 18);
+    yPosition = addText('Castellan Real Estate Group', margin + 80, logoAreaY + 10, contentWidth - 80, 20);
+    
+    // Subtitle
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(100, 100, 100);
+    yPosition = addText('Employee Knowledge Transfer Form', margin + 80, yPosition + 5, contentWidth - 80, 12);
+    
+    // Reset to normal styling
     doc.setFont(undefined, 'normal');
     doc.setTextColor(0, 0, 0);
-    yPosition += 10;
+    yPosition = logoAreaY + logoAreaHeight + 15;
+    
+    // Add company information
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    yPosition = addText('Real Estate Development & Management', margin + 80, yPosition + 5, contentWidth - 80, 9);
+    yPosition = addText('Employee Exit Process Documentation', margin + 80, yPosition, contentWidth - 80, 9);
+    
+    // Add a separator line
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, yPosition + 5, pageWidth - margin, yPosition + 5);
+    yPosition += 15;
     
     // Section 1: Employee Details
     yPosition = addSectionHeader('Section 1: Employee Details');
@@ -744,23 +1065,23 @@ function generatePDF(formData) {
     yPosition = addSectionHeader('Section 6: Digital Signatures');
     yPosition = addField('Employee Signature Date', formData.employeeSignatureDate, yPosition);
     yPosition = addField('Submission Date', formData.submissionDate, yPosition);
+    yPosition += 10;
     
-    // Add signature image if available
+    // Add employee signature image if available
     if (formData.employeeSignature) {
         try {
-            console.log('Adding signature to PDF:', formData.employeeSignature.substring(0, 50) + '...');
-            const imgWidth = 100;
-            const imgHeight = 40;
+            console.log('Adding employee signature to PDF:', formData.employeeSignature.substring(0, 50) + '...');
+            const imgWidth = 200;
+            const imgHeight = 80;
             doc.addImage(formData.employeeSignature, 'PNG', margin, yPosition, imgWidth, imgHeight);
-            yPosition += 50;
-            console.log('Signature added to PDF successfully');
+            yPosition += 90;
+            console.log('Employee signature added to PDF successfully');
         } catch (error) {
-            console.error('Error adding signature to PDF:', error);
-            // Add a placeholder text if signature fails
+            console.error('Error adding employee signature to PDF:', error);
             yPosition = addField('Employee Signature', '[Signature captured but could not be embedded]', yPosition);
         }
     } else {
-        console.log('No signature data found for PDF');
+        console.log('No employee signature data found for PDF');
         yPosition = addField('Employee Signature', '[No signature provided]', yPosition);
     }
     
@@ -784,12 +1105,12 @@ function initializeFileUpload() {
     fileInput.addEventListener('change', function(e) {
         const files = Array.from(e.target.files);
         
-        // Check file sizes (limit to 2MB per file)
-        const maxSize = 2 * 1024 * 1024; // 2MB
+        // Check file sizes (limit to 5MB per file)
+        const maxSize = 5 * 1024 * 1024; // 5MB
         const oversizedFiles = files.filter(file => file.size > maxSize);
         
         if (oversizedFiles.length > 0) {
-            alert(`Some files are too large (max 2MB each):\n${oversizedFiles.map(f => f.name).join('\n')}`);
+            alert(`Some files are too large (max 5MB each):\n${oversizedFiles.map(f => f.name).join('\n')}`);
             // Remove oversized files
             const validFiles = files.filter(file => file.size <= maxSize);
             const dt = new DataTransfer();
