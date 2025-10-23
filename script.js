@@ -75,11 +75,17 @@ function trackPerformance() {
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 DOM Content Loaded - Initializing application...');
     initAnalytics();
     initializeS3();
     initializeSignaturePad();
     initializeFormHandlers();
-    initializeDynamicFields();
+    
+    // Add a small delay to ensure all elements are rendered
+    setTimeout(() => {
+        initializeDynamicFields();
+    }, 100);
+    
     setCurrentDate();
 });
 
@@ -122,19 +128,48 @@ function initializeFormHandlers() {
 
 // Initialize dynamic fields (contacts and access)
 function initializeDynamicFields() {
+    console.log('🔧 Initializing dynamic fields...');
+    
     // Add contact functionality
-    document.getElementById('addContact').addEventListener('click', addContactRow);
+    const addContactBtn = document.getElementById('addContact');
+    if (addContactBtn) {
+        addContactBtn.addEventListener('click', function(e) {
+            console.log('🔧 Add Contact button clicked!');
+            e.preventDefault();
+            addContactRow();
+        });
+        console.log('✅ Add Contact button event listener attached');
+    } else {
+        console.error('❌ Add Contact button not found');
+    }
     
     // Add access functionality
-    document.getElementById('addAccess').addEventListener('click', addAccessRow);
+    const addAccessBtn = document.getElementById('addAccess');
+    if (addAccessBtn) {
+        addAccessBtn.addEventListener('click', function(e) {
+            console.log('🔧 Add Access button clicked!');
+            e.preventDefault();
+            addAccessRow();
+        });
+        console.log('✅ Add Access button event listener attached');
+    } else {
+        console.error('❌ Add Access button not found');
+    }
     
     // Add file upload functionality
     initializeFileUpload();
+    console.log('✅ Dynamic fields initialization complete');
 }
 
 // Add new contact row
 function addContactRow() {
+    console.log('🔧 Adding new contact row...');
     const contactsList = document.getElementById('contactsList');
+    if (!contactsList) {
+        console.error('❌ contactsList element not found');
+        return;
+    }
+    
     const newRow = document.createElement('div');
     newRow.className = 'contact-row';
     newRow.innerHTML = `
@@ -143,6 +178,7 @@ function addContactRow() {
         <button type="button" class="remove-contact" onclick="removeContact(this)">Remove</button>
     `;
     contactsList.appendChild(newRow);
+    console.log('✅ Contact row added successfully');
 }
 
 // Remove contact row
@@ -157,7 +193,13 @@ function removeContact(button) {
 
 // Add new access row
 function addAccessRow() {
+    console.log('🔧 Adding new access row...');
     const accessList = document.getElementById('accessList');
+    if (!accessList) {
+        console.error('❌ accessList element not found');
+        return;
+    }
+    
     const newRow = document.createElement('div');
     newRow.className = 'access-row';
     
@@ -183,6 +225,7 @@ function addAccessRow() {
         <button type="button" class="remove-access" onclick="removeAccess(this)">Remove</button>
     `;
     accessList.appendChild(newRow);
+    console.log('✅ Access row added successfully');
 }
 
 // Remove access row
