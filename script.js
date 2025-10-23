@@ -84,10 +84,36 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeSignaturePad();
     initializeFormHandlers();
     
-    // Add a small delay to ensure all elements are rendered
+    // Add a longer delay to ensure all elements are rendered in production
     setTimeout(() => {
+        console.log('⏰ Initializing dynamic fields after delay...');
         initializeDynamicFields();
-    }, 100);
+    }, 500);
+    
+    // Fallback initialization after 2 seconds if first attempt fails
+    setTimeout(() => {
+        console.log('🔄 Fallback initialization...');
+        const addContactBtn = document.getElementById('addContact');
+        const addAccessBtn = document.getElementById('addAccess');
+        
+        if (addContactBtn && !addContactBtn.onclick) {
+            console.log('🔧 Re-attaching Add Contact button...');
+            addContactBtn.addEventListener('click', function(e) {
+                console.log('🔧 Add Contact button clicked! (fallback)');
+                e.preventDefault();
+                addContactRow();
+            });
+        }
+        
+        if (addAccessBtn && !addAccessBtn.onclick) {
+            console.log('🔧 Re-attaching Add Access button...');
+            addAccessBtn.addEventListener('click', function(e) {
+                console.log('🔧 Add Access button clicked! (fallback)');
+                e.preventDefault();
+                addAccessRow();
+            });
+        }
+    }, 2000);
     
     setCurrentDate();
 });
