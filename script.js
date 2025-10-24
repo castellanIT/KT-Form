@@ -106,25 +106,32 @@ document.addEventListener('DOMContentLoaded', function() {
     // Fallback initialization after 2 seconds if first attempt fails
     setTimeout(() => {
         console.log('🔄 Fallback initialization...');
-        const addContactBtn = document.getElementById('addContact');
-        const addAccessBtn = document.getElementById('addAccess');
         
-        if (addContactBtn && !addContactBtn.onclick) {
-            console.log('🔧 Re-attaching Add Contact button...');
-            addContactBtn.addEventListener('click', function(e) {
-                console.log('🔧 Add Contact button clicked! (fallback)');
-                e.preventDefault();
-                addContactRow();
-            });
-        }
-        
-        if (addAccessBtn && !addAccessBtn.onclick) {
-            console.log('🔧 Re-attaching Add Access button...');
-            addAccessBtn.addEventListener('click', function(e) {
-                console.log('🔧 Add Access button clicked! (fallback)');
-                e.preventDefault();
-                addAccessRow();
-            });
+        // Only run fallback if buttons weren't initialized successfully
+        if (!buttonsInitialized) {
+            console.log('⚠️ Primary initialization failed - running fallback...');
+            const addContactBtn = document.getElementById('addContact');
+            const addAccessBtn = document.getElementById('addAccess');
+            
+            if (addContactBtn) {
+                console.log('🔧 Re-attaching Add Contact button...');
+                addContactBtn.addEventListener('click', function(e) {
+                    console.log('🔧 Add Contact button clicked! (fallback)');
+                    e.preventDefault();
+                    addContactRow();
+                });
+            }
+            
+            if (addAccessBtn) {
+                console.log('🔧 Re-attaching Add Access button...');
+                addAccessBtn.addEventListener('click', function(e) {
+                    console.log('🔧 Add Access button clicked! (fallback)');
+                    e.preventDefault();
+                    addAccessRow();
+                });
+            }
+        } else {
+            console.log('✅ Primary initialization successful - skipping fallback');
         }
     }, 2000);
     
@@ -168,6 +175,9 @@ function initializeFormHandlers() {
     });
 }
 
+// Track if buttons have been initialized
+let buttonsInitialized = false;
+
 // Initialize dynamic fields (contacts and access)
 function initializeDynamicFields() {
     console.log('🔧 Initializing dynamic fields...');
@@ -201,6 +211,7 @@ function initializeDynamicFields() {
     // Add file upload functionality
     initializeFileUpload();
     console.log('✅ Dynamic fields initialization complete');
+    buttonsInitialized = true;
 }
 
 // Add new contact row
