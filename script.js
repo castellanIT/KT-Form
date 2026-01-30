@@ -418,22 +418,32 @@ async function handleFormSubmission() {
                 throw new Error('PDF generation or upload failed - cannot proceed with webhook submission');
             }
         } else {
-            console.log('⚠️ S3 not available - skipping file uploads');
+            console.log('⚠️ S3 not available - using base64 data directly');
+            // When S3 is not available, use base64 data from formData
             s3Uploads = {
-                attachments: [],
-                pdf: null,
-                signature: null
+                attachments: formData.attachments || [],
+                pdf: {
+                    fileName: formData.pdfFileName,
+                    mimeType: formData.pdfMimeType,
+                    base64Content: formData.pdfBase64Content
+                },
+                signature: formData.employeeSignature ? {
+                    base64Content: formData.employeeSignature
+                } : null
             };
+            console.log(`📎 Attachments included: ${s3Uploads.attachments.length} files`);
         }
 
         if (s3Client && s3Uploads.pdf) {
             console.log('✅ PDF successfully generated and uploaded to S3');
             console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
+        } else if (s3Uploads.pdf && s3Uploads.pdf.base64Content) {
+            console.log('✅ PDF generated with base64 data (S3 unavailable)');
         } else {
-            console.log('⚠️ PDF generated but not uploaded to S3 (S3 unavailable)');
+            console.log('⚠️ PDF data missing');
         }
 
-        // Create webhook payload with S3 URLs instead of base64 data
+        // Create webhook payload
         const webhookPayload = {
             formData: {
                 employeeName: formData.employeeName,
@@ -458,7 +468,7 @@ async function handleFormSubmission() {
             },
             contacts: formData.contacts || [],
             accessCredentials: formData.accessCredentials || [],
-            // S3 URLs instead of base64 data
+            // Use S3 URLs if available, otherwise use base64 data
             attachments: s3Uploads.attachments,
             pdf: s3Uploads.pdf,
             employeeSignature: s3Uploads.signature,
@@ -630,50 +640,25 @@ async function sendToWebhook(data) {
         console.log('🚀 Sending data to webhook:', requestId);
         console.log('📊 Data size:', JSON.stringify(data).length, 'characters');
 
-        // Create structured payload with base64 data included
+        // Use the already structured payload passed from handleFormSubmission
+        // The data is already properly structured with formData, contacts, etc.
         const structuredPayload = {
-            // Core form data
-            formData: {
-                employeeName: data.employeeName,
-                designation: data.designation,
-                department: data.department,
-                reportingManagerName: data.reportingManagerName,
-                reportingManagerEmail: data.reportingManagerEmail,
-                employeeId: data.employeeId,
-                dateOfJoining: data.dateOfJoining,
-                lastWorkingDay: data.lastWorkingDay,
-                currentResponsibilities: data.currentResponsibilities,
-                ongoingProjects: data.ongoingProjects,
-                toolsSystems: data.toolsSystems,
-                keyDocuments: data.keyDocuments,
-                sops: data.sops,
-                successor: data.successor,
-                areasHandedOver: data.areasHandedOver,
-                areasPending: data.areasPending,
-                employeeSignatureDate: data.employeeSignatureDate,
-                submissionDate: data.submissionDate,
-                formVersion: data.formVersion
-            },
+            // Core form data - use existing nested structure
+            formData: data.formData || {},
             // Contacts array
             contacts: data.contacts || [],
             // Access credentials array
             accessCredentials: data.accessCredentials || [],
-            // Attachments with base64 data
+            // Attachments - use S3 URLs
             attachments: data.attachments || [],
-            // PDF with base64 data
-            pdf: {
-                fileName: data.pdfFileName,
-                mimeType: data.pdfMimeType,
-                base64Content: data.pdfBase64Content
-            },
-            // Employee signature
+            // PDF - use S3 URL
+            pdf: data.pdf || {},
+            // Employee signature - use S3 URL
             employeeSignature: data.employeeSignature,
-            // Analytics
+            // Analytics with requestId
             analytics: {
-                sessionId: ANALYTICS.sessionId,
-                submissionTime: new Date().toISOString(),
-                requestId: requestId,
-                performanceMetrics: ANALYTICS.performanceMetrics
+                ...data.analytics,
+                requestId: requestId
             }
         };
 
@@ -688,19 +673,22 @@ async function sendToWebhook(data) {
             payloadToSend = {
                 ...structuredPayload,
                 // Remove large base64 data but keep metadata
-                attachments: structuredPayload.attachments.map(att => ({
+                attachments: (structuredPayload.attachments || []).map(att => ({
                     fileName: att.fileName,
                     fileSize: att.fileSize,
                     fileType: att.fileType,
-                    mimeType: att.mimeType,
-                    hasData: !!att.base64Content
+                    s3Url: att.s3Url,
+                    s3Key: att.s3Key
                 })),
-                pdf: {
+                pdf: structuredPayload.pdf ? {
                     fileName: structuredPayload.pdf.fileName,
-                    mimeType: structuredPayload.pdf.mimeType,
-                    hasData: !!structuredPayload.pdf.base64Content
-                },
-                employeeSignature: structuredPayload.employeeSignature ? '[Signature captured]' : null
+                    s3Url: structuredPayload.pdf.s3Url,
+                    s3Key: structuredPayload.pdf.s3Key
+                } : null,
+                employeeSignature: structuredPayload.employeeSignature ? {
+                    s3Url: structuredPayload.employeeSignature.s3Url,
+                    s3Key: structuredPayload.employeeSignature.s3Key
+                } : null
             };
             console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
         }
@@ -727,12 +715,12 @@ async function sendToWebhook(data) {
         // With no-cors mode, we can't read the response, but the request was sent
         console.log('✅ Structured webhook request sent in', responseTime, 'ms (CORS may block response reading)');
         console.log('📊 Payload structure:', {
-            formData: Object.keys(structuredPayload.formData).length + ' fields',
-            contacts: structuredPayload.contacts.length,
-            accessCredentials: structuredPayload.accessCredentials.length,
-            attachments: structuredPayload.attachments.length,
-            hasPdf: structuredPayload.pdf.hasData,
-            hasSignature: data.employeeSignature ? 'Yes' : 'No'
+            formData: Object.keys(structuredPayload.formData || {}).length + ' fields',
+            contacts: (structuredPayload.contacts || []).length,
+            accessCredentials: (structuredPayload.accessCredentials || []).length,
+            attachments: (structuredPayload.attachments || []).length,
+            hasPdf: structuredPayload.pdf && (structuredPayload.pdf.s3Url || structuredPayload.pdf.fileName) ? 'Yes' : 'No',
+            hasSignature: structuredPayload.employeeSignature ? 'Yes' : 'No'
         });
         ANALYTICS.formSubmissions++;
         return { status: 'success', message: 'Structured data sent to webhook', requestId: requestId };
