@@ -578,13 +578,13 @@ function collectAccessCredentials() {
     return access;
 }
 
-// Collect attachments data
+// Collect attachments data from accumulated files
 async function collectAttachments() {
-    const fileInput = document.getElementById('attachments');
-    const files = Array.from(fileInput.files);
     const attachments = [];
 
-    for (const file of files) {
+    console.log(`📎 Collecting ${accumulatedFiles.length} attachments...`);
+
+    for (const file of accumulatedFiles) {
         const base64 = await fileToBase64(file);
         const { mimeType, base64Content } = splitBase64Data(base64);
 
@@ -595,6 +595,7 @@ async function collectAttachments() {
             mimeType: mimeType,
             base64Content: base64Content
         });
+        console.log(`📎 Processed: ${file.name} (${formatFileSize(file.size)})`);
     }
 
     return attachments;
@@ -830,8 +831,8 @@ async function uploadToS3(file, fileName, contentType) {
         Bucket: S3_CONFIG.bucketName,
         Key: key,
         Body: file,
-        ContentType: contentType,
-        ACL: 'private' // Make files private by default
+        ContentType: contentType
+        // Note: ACL removed - bucket uses "Block all public access" by default
     };
 
     try {
@@ -1201,30 +1202,53 @@ function generatePDF(formData) {
     return doc;
 }
 
+// Global array to store accumulated files
+let accumulatedFiles = [];
+
 // Initialize file upload functionality
 function initializeFileUpload() {
     const fileInput = document.getElementById('attachments');
-    const fileList = document.getElementById('fileList');
 
     fileInput.addEventListener('change', function (e) {
-        const files = Array.from(e.target.files);
+        const newFiles = Array.from(e.target.files);
 
         // Check file sizes (limit to 5MB per file)
         const maxSize = 5 * 1024 * 1024; // 5MB
-        const oversizedFiles = files.filter(file => file.size > maxSize);
+        const oversizedFiles = newFiles.filter(file => file.size > maxSize);
 
         if (oversizedFiles.length > 0) {
             alert(`Some files are too large (max 5MB each):\n${oversizedFiles.map(f => f.name).join('\n')}`);
-            // Remove oversized files
-            const validFiles = files.filter(file => file.size <= maxSize);
-            const dt = new DataTransfer();
-            validFiles.forEach(file => dt.items.add(file));
-            fileInput.files = dt.files;
-            displayFileList(validFiles);
-        } else {
-            displayFileList(files);
         }
+
+        // Filter valid files and check for duplicates
+        const validFiles = newFiles.filter(file => {
+            if (file.size > maxSize) return false;
+            // Check if file already exists (by name and size)
+            const isDuplicate = accumulatedFiles.some(
+                existing => existing.name === file.name && existing.size === file.size
+            );
+            if (isDuplicate) {
+                console.log(`⚠️ Skipping duplicate file: ${file.name}`);
+            }
+            return !isDuplicate;
+        });
+
+        // Add new valid files to accumulated array
+        accumulatedFiles = [...accumulatedFiles, ...validFiles];
+        console.log(`📎 Total files accumulated: ${accumulatedFiles.length}`);
+
+        // Update the file input with all accumulated files
+        updateFileInput();
+        displayFileList();
     });
+}
+
+// Update file input with accumulated files
+function updateFileInput() {
+    const fileInput = document.getElementById('attachments');
+    const dt = new DataTransfer();
+    accumulatedFiles.forEach(file => dt.items.add(file));
+    fileInput.files = dt.files;
 }
 
 // Set current date in signature date field
@@ -1237,19 +1261,26 @@ function setCurrentDate() {
     }
 }
 
-// Display selected files
-function displayFileList(files) {
+// Display selected files from accumulated array
+function displayFileList() {
     const fileList = document.getElementById('fileList');
 
-    if (files.length === 0) {
+    if (accumulatedFiles.length === 0) {
         fileList.style.display = 'none';
+        fileList.innerHTML = '';
         return;
     }
 
     fileList.innerHTML = '';
     fileList.style.display = 'block';
 
-    files.forEach((file, index) => {
+    // Add file count header
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'file-list-header';
+    headerDiv.innerHTML = `<strong>📎 ${accumulatedFiles.length} file(s) selected</strong>`;
+    fileList.appendChild(headerDiv);
+
+    accumulatedFiles.forEach((file, index) => {
         const fileItem = document.createElement('div');
         fileItem.className = 'file-item';
         fileItem.innerHTML = `
@@ -1259,6 +1290,14 @@ function displayFileList(files) {
         `;
         fileList.appendChild(fileItem);
     });
+
+    // Add clear all button if multiple files
+    if (accumulatedFiles.length > 1) {
+        const clearAllDiv = document.createElement('div');
+        clearAllDiv.className = 'file-list-footer';
+        clearAllDiv.innerHTML = `<button type="button" class="clear-all-files" onclick="clearAllFiles()">Clear All Files</button>`;
+        fileList.appendChild(clearAllDiv);
+    }
 }
 
 // Format file size
@@ -1272,19 +1311,23 @@ function formatFileSize(bytes) {
 
 // Remove file from list
 function removeFile(index) {
+    accumulatedFiles.splice(index, 1);
+    console.log(`📎 File removed. Remaining: ${accumulatedFiles.length}`);
+    updateFileInput();
+    displayFileList();
+}
+
+// Clear all files
+function clearAllFiles() {
+    accumulatedFiles = [];
     const fileInput = document.getElementById('attachments');
-    const files = Array.from(fileInput.files);
-    files.splice(index, 1);
-
-    // Create new FileList
-    const dt = new DataTransfer();
-    files.forEach(file => dt.items.add(file));
-    fileInput.files = dt.files;
-
-    displayFileList(files);
+    fileInput.value = '';
+    console.log('📎 All files cleared');
+    displayFileList();
 }
 
 // Export functions for global access
 window.removeContact = removeContact;
 window.removeAccess = removeAccess;
 window.removeFile = removeFile;
+window.clearAllFiles = clearAllFiles;

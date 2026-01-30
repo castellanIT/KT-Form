@@ -663,3 +663,36 @@ header h1 {
 .remove-file:hover {
     background-color: #b91c1c;
 }
+
+/* File list header and footer */
+.file-list-header {
+    padding: 10px 12px;
+    background-color: #e0f2fe;
+    border-radius: 4px 4px 0 0;
+    color: #0369a1;
+    font-size: 14px;
+    border-bottom: 1px solid #bae6fd;
+}
+
+.file-list-footer {
+    padding: 10px 12px;
+    text-align: center;
+    border-top: 1px solid #e5e7eb;
+    margin-top: 5px;
+}
+
+.clear-all-files {
+    background-color: #f59e0b;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.clear-all-files:hover {
+    background-color: #d97706;
+}
