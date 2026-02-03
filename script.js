@@ -3,11 +3,15 @@ let employeeSignaturePad;
 let isSubmitting = false;
 const { jsPDF } = window.jspdf;
 
-// Use proxy URL so the request is not blocked by CORS. The proxy forwards to Make.com.
-// - Same-origin: use '/make-proxy' (e.g. when served with server.js from same host).
-// - Amplify: set window.KT_FORM_WEBHOOK_PROXY in index.html to your API Gateway URL, e.g.:
-//   https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod/make-proxy
-const WEBHOOK_URL = (typeof window !== 'undefined' && window.KT_FORM_WEBHOOK_PROXY) || '/make-proxy';
+// Webhook URL - Direct Make.com webhook (used when proxy is not available)
+const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
+
+// Use same-origin proxy when available (avoids CORS; run server with: node server.js)
+function getWebhookUrl() {
+  const hasOrigin = typeof window !== 'undefined' && window.location?.protocol !== 'file:' && window.location?.host;
+  if (hasOrigin) return window.location.origin + '/make-proxy';
+  return WEBHOOK_URL;
+}
 
 // S3 Configuration is loaded from config.js file
 // The config.js file contains the actual AWS credentials and is excluded from Git
@@ -373,12 +377,18 @@ function validateForm() {
 
 // Handle form submission
 async function handleFormSubmission() {
-    if (isSubmitting) return;
-
-    if (!validateForm()) {
+    console.log('📤 Form submit triggered');
+    if (isSubmitting) {
+        console.log('⚠️ Already submitting, ignoring');
         return;
     }
 
+    if (!validateForm()) {
+        console.log('⚠️ Validation failed');
+        return;
+    }
+
+    console.log('✅ Validation passed, collecting data...');
     isSubmitting = true;
     const submitBtn = document.querySelector('.submit-btn');
     submitBtn.textContent = 'Submitting...';
@@ -406,21 +416,22 @@ async function handleFormSubmission() {
         console.log(`📄 PDF filename: ${formData.pdfFileName}`);
         console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
 
-        // Upload files to S3 (if available)
+        // Upload files to S3 (if available); on failure, fall back to base64 so webhook still receives data
         let s3Uploads = null;
         if (s3Client) {
             console.log('📤 Starting S3 uploads...');
-            s3Uploads = await uploadAllFilesToS3(formData);
-
-            // Check if PDF was successfully generated and uploaded
-            if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
-                console.error('❌ PDF generation or upload failed:');
-                console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
-                console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
-                console.error('   - PDF filename:', formData.pdfFileName);
-                throw new Error('PDF generation or upload failed - cannot proceed with webhook submission');
+            try {
+                s3Uploads = await uploadAllFilesToS3(formData);
+                if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
+                    console.warn('⚠️ S3 PDF upload failed, sending PDF as base64 to webhook');
+                    s3Uploads = null;
+                }
+            } catch (s3Error) {
+                console.warn('⚠️ S3 upload failed:', s3Error?.message || s3Error, '- sending base64 to webhook');
+                s3Uploads = null;
             }
-        } else {
+        }
+        if (!s3Uploads) {
             console.log('⚠️ S3 not available - using base64 data directly');
             // When S3 is not available, use base64 data from formData
             s3Uploads = {
@@ -697,9 +708,13 @@ async function sendToWebhook(data) {
             console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
         }
 
-        // Send structured payload via proxy (avoids CORS blocking)
-        const response = await fetch(WEBHOOK_URL, {
+        const webhookUrl = getWebhookUrl();
+        const isProxy = webhookUrl.indexOf('/make-proxy') !== -1;
+        console.log('📡 Sending to:', isProxy ? 'same-origin proxy' : 'direct webhook', webhookUrl);
+
+        const response = await fetch(webhookUrl, {
             method: 'POST',
+            mode: isProxy ? 'cors' : 'no-cors',
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -707,24 +722,20 @@ async function sendToWebhook(data) {
         });
 
         const responseTime = Date.now() - startTime;
-        const responseOk = response.ok;
-
         ANALYTICS.webhookResponses.push({
             requestId: requestId,
-            status: responseOk ? 'sent' : 'error',
-            statusCode: response.status,
+            status: response.ok ? 'sent' : 'error',
             responseTime: responseTime,
             dataSize: dataSize,
             timestamp: new Date().toISOString()
         });
 
-        if (!responseOk) {
+        if (isProxy && !response.ok) {
             const errText = await response.text();
-            console.error('❌ Webhook proxy returned error:', response.status, errText);
-            throw new Error(`Webhook failed: ${response.status} ${errText}`);
+            console.error('❌ Webhook proxy error:', response.status, errText);
+            throw new Error(`Webhook returned ${response.status}: ${errText}`);
         }
-
-        console.log('✅ Webhook request sent in', responseTime, 'ms');
+        console.log('✅ Webhook request sent in', responseTime, 'ms', isProxy ? '(via proxy)' : '');
         console.log('📊 Payload structure:', {
             formData: Object.keys(structuredPayload.formData || {}).length + ' fields',
             contacts: (structuredPayload.contacts || []).length,

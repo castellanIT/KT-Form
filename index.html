@@ -9,8 +9,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <!-- AWS SDK CDN -->
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1691.0.min.js"></script>
-    <!-- For Amplify: set your API Gateway proxy URL so the form can reach the webhook (avoids CORS). Uncomment and replace with your URL. -->
-    <!-- <script>window.KT_FORM_WEBHOOK_PROXY = 'https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod/make-proxy';</script> -->
     <!-- AWS Configuration (SECURE) -->
     <script src="config.js"></script>
 </head>
@@ -23,7 +21,7 @@
             </div>
         </header>
 
-        <form id="ktForm" class="kt-form">
+        <form id="ktForm" class="kt-form" onsubmit="return false;" action="javascript:void(0)">
             <!-- Section 1: Employee Details -->
             <section class="form-section">
                 <h2>Section 1: Employee Details</h2>
