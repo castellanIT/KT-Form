@@ -3,8 +3,11 @@ let employeeSignaturePad;
 let isSubmitting = false;
 const { jsPDF } = window.jspdf;
 
-// Webhook URL - Using direct Make.com webhook (will have CORS issues)
-const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
+// Use proxy URL so the request is not blocked by CORS. The proxy forwards to Make.com.
+// - Same-origin: use '/make-proxy' (e.g. when served with server.js from same host).
+// - Amplify: set window.KT_FORM_WEBHOOK_PROXY in index.html to your API Gateway URL, e.g.:
+//   https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod/make-proxy
+const WEBHOOK_URL = (typeof window !== 'undefined' && window.KT_FORM_WEBHOOK_PROXY) || '/make-proxy';
 
 // S3 Configuration is loaded from config.js file
 // The config.js file contains the actual AWS credentials and is excluded from Git
@@ -694,10 +697,9 @@ async function sendToWebhook(data) {
             console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
         }
 
-        // Send structured payload
+        // Send structured payload via proxy (avoids CORS blocking)
         const response = await fetch(WEBHOOK_URL, {
             method: 'POST',
-            mode: 'no-cors', // This will send the request but we can't read the response
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -705,16 +707,24 @@ async function sendToWebhook(data) {
         });
 
         const responseTime = Date.now() - startTime;
+        const responseOk = response.ok;
+
         ANALYTICS.webhookResponses.push({
             requestId: requestId,
-            status: 'sent',
+            status: responseOk ? 'sent' : 'error',
+            statusCode: response.status,
             responseTime: responseTime,
             dataSize: dataSize,
             timestamp: new Date().toISOString()
         });
 
-        // With no-cors mode, we can't read the response, but the request was sent
-        console.log('✅ Structured webhook request sent in', responseTime, 'ms (CORS may block response reading)');
+        if (!responseOk) {
+            const errText = await response.text();
+            console.error('❌ Webhook proxy returned error:', response.status, errText);
+            throw new Error(`Webhook failed: ${response.status} ${errText}`);
+        }
+
+        console.log('✅ Webhook request sent in', responseTime, 'ms');
         console.log('📊 Payload structure:', {
             formData: Object.keys(structuredPayload.formData || {}).length + ' fields',
             contacts: (structuredPayload.contacts || []).length,
@@ -744,8 +754,7 @@ async function sendToWebhook(data) {
             sessionId: ANALYTICS.sessionId
         });
 
-        // Even if there's an error, we'll consider it successful since the data was sent
-        return { status: 'success', message: 'Data sent to webhook (CORS may have blocked response)', requestId: requestId };
+        throw error;
     }
 }
 

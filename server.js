@@ -1,17 +1,21 @@
-// Simple Express proxy server
+// Simple Express proxy server - forwards form payload to Make.com webhook
 // Run with: node server.js
-// Deploy to Vercel, Netlify Functions, or any Node.js hosting
+// Open http://localhost:3000 - form and /make-proxy are same-origin so webhook works
 
 const express = require('express');
+const path = require('path');
 const fetch = require('node-fetch');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Allow large payloads (PDF base64, etc.)
 
-// CORS middleware
+// Serve static files from current directory so form works at http://localhost:3000
+app.use(express.static(path.join(__dirname)));
+
+// CORS middleware (for Amplify frontend calling deployed API)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://main.d20lkin2kvtjbb.amplifyapp.com');
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   next();
 });
