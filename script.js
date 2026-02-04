@@ -6,22 +6,19 @@ const { jsPDF } = window.jspdf;
 // Webhook URL - Using direct Make.com webhook (will have CORS issues)
 const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
-// S3 Configuration is loaded from config.js file
-// The config.js file contains the actual AWS credentials and is excluded from Git
-// Default bucket name: kt-form-documents
+// S3 is optional. If config.js is loaded and defines window.S3_CONFIG, S3 uploads are used.
+// Otherwise files are sent in the webhook as base64. Bucket name: kt-form-documents
+window.S3_CONFIG = typeof window.S3_CONFIG !== 'undefined' ? window.S3_CONFIG : null;
 
-// Initialize AWS S3
+// Initialize AWS S3 (optional)
 let s3Client = null;
 function initializeS3() {
-    // Check if S3_CONFIG is available (config.js loaded successfully)
-    if (typeof S3_CONFIG === 'undefined') {
-        console.error('❌ S3_CONFIG not available - config.js not loaded or missing');
-        console.error('📝 S3 uploads are required. Please configure config.js with AWS credentials.');
-        alert('S3 configuration missing. Please configure AWS credentials in config.js');
+    if (!window.S3_CONFIG || !window.S3_CONFIG.accessKeyId) {
+        console.warn('⚠️ S3 not configured - config.js missing or empty. Files will be sent as base64 in webhook.');
         return;
     }
 
-    // Ensure bucket name is set (default to kt-form-documents)
+    const S3_CONFIG = window.S3_CONFIG;
     if (!S3_CONFIG.bucketName) {
         S3_CONFIG.bucketName = 'kt-form-documents';
         console.log('📝 Using default bucket name: kt-form-documents');
@@ -38,14 +35,11 @@ function initializeS3() {
             console.log('✅ S3 client initialized');
             console.log(`📦 Bucket: ${S3_CONFIG.bucketName}, Region: ${S3_CONFIG.region || 'us-east-1'}`);
         } catch (error) {
-            console.error('❌ S3 initialization failed:', error.message);
-            alert('S3 initialization failed. Please check your AWS credentials.');
-            throw error;
+            console.warn('⚠️ S3 initialization failed:', error.message);
+            s3Client = null;
         }
     } else {
-        console.error('❌ AWS SDK not loaded');
-        alert('AWS SDK not loaded. Please check your script includes.');
-        throw new Error('AWS SDK not available');
+        console.warn('⚠️ AWS SDK not loaded');
     }
 }
 
@@ -414,31 +408,22 @@ async function handleFormSubmission() {
         console.log(`📄 PDF filename: ${formData.pdfFileName}`);
         console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
 
-        // Upload files to S3 (required)
+        // S3 required – we only send S3 object URLs to the webhook (no base64)
         if (!s3Client) {
-            throw new Error('S3 client not initialized. Please configure AWS credentials in config.js');
+            throw new Error('S3 is required. Add AWS credentials in config.js (copy config.example.js and see S3_SETUP.md).');
         }
 
-        console.log('📤 Starting S3 uploads to bucket: kt-form-documents...');
+        console.log('📤 Starting S3 uploads...');
         const s3Uploads = await uploadAllFilesToS3(formData);
-
-        // Verify all uploads succeeded
         if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
-            console.error('❌ PDF upload failed:');
-            console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
-            console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
-            console.error('   - PDF filename:', formData.pdfFileName);
+            console.error('❌ PDF upload failed');
             throw new Error('PDF upload to S3 failed - cannot proceed with webhook submission');
         }
-
-        console.log('✅ All files uploaded to S3 successfully');
+        console.log('✅ All files uploaded to S3');
         console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
-        console.log(`📎 Attachments uploaded: ${s3Uploads.attachments.length} files`);
-        if (s3Uploads.signature) {
-            console.log(`✍️ Signature S3 URL: ${s3Uploads.signature.s3Url}`);
-        }
+        console.log(`📎 Attachments: ${s3Uploads.attachments.length} files`);
 
-        // Create webhook payload
+        // Build webhook payload (S3 URLs when S3 used, else base64)
         const webhookPayload = {
             formData: {
                 employeeName: formData.employeeName,
@@ -463,23 +448,9 @@ async function handleFormSubmission() {
             },
             contacts: formData.contacts || [],
             accessCredentials: formData.accessCredentials || [],
-            // S3 object URLs (all files uploaded to S3 bucket: kt-form-documents)
-            attachments: s3Uploads.attachments.map(att => ({
-                fileName: att.fileName,
-                fileSize: att.fileSize,
-                fileType: att.fileType,
-                s3Url: att.s3Url,
-                s3Key: att.s3Key
-            })),
-            pdf: {
-                fileName: s3Uploads.pdf.fileName,
-                s3Url: s3Uploads.pdf.s3Url,
-                s3Key: s3Uploads.pdf.s3Key
-            },
-            employeeSignature: s3Uploads.signature ? {
-                s3Url: s3Uploads.signature.s3Url,
-                s3Key: s3Uploads.signature.s3Key
-            } : null,
+            attachments: s3Uploads.attachments,
+            pdf: s3Uploads.pdf,
+            employeeSignature: s3Uploads.signature,
             analytics: {
                 sessionId: ANALYTICS.sessionId,
                 submissionTime: new Date().toISOString(),
@@ -648,58 +619,71 @@ async function sendToWebhook(data) {
         console.log('🚀 Sending data to webhook:', requestId);
         console.log('📊 Data size:', JSON.stringify(data).length, 'characters');
 
-        // Use the already structured payload passed from handleFormSubmission
-        // The data is already properly structured with formData, contacts, etc.
+        // Validate: ensure we have S3 URLs (no base64 should be in data at this point)
+        if (data.attachments && data.attachments.some(att => att.base64Content && !att.s3Url)) {
+            throw new Error('Attachments missing S3 URLs - S3 upload may have failed');
+        }
+        if (data.pdf && data.pdf.base64Content && !data.pdf.s3Url) {
+            throw new Error('PDF missing S3 URL - S3 upload may have failed');
+        }
+        if (data.employeeSignature && data.employeeSignature.base64Content && !data.employeeSignature.s3Url) {
+            throw new Error('Signature missing S3 URL - S3 upload may have failed');
+        }
+
+        // Build payload with ONLY S3 URLs (explicitly exclude base64Content)
+        const attachmentsPayload = (data.attachments || [])
+            .filter(att => att.s3Url) // Only include items with S3 URLs
+            .map(att => ({
+                fileName: att.fileName,
+                fileSize: att.fileSize,
+                fileType: att.fileType,
+                s3Url: att.s3Url,
+                s3Key: att.s3Key || null
+            }));
+        
+        const pdfPayload = data.pdf && data.pdf.s3Url ? {
+            fileName: data.pdf.fileName,
+            s3Url: data.pdf.s3Url,
+            s3Key: data.pdf.s3Key || null
+        } : null;
+        
+        const signaturePayload = data.employeeSignature && data.employeeSignature.s3Url ? {
+            s3Url: data.employeeSignature.s3Url,
+            s3Key: data.employeeSignature.s3Key || null
+        } : null;
+
         const structuredPayload = {
-            // Core form data - use existing nested structure
             formData: data.formData || {},
-            // Contacts array
             contacts: data.contacts || [],
-            // Access credentials array
             accessCredentials: data.accessCredentials || [],
-            // Attachments - use S3 URLs
-            attachments: data.attachments || [],
-            // PDF - use S3 URL
-            pdf: data.pdf || {},
-            // Employee signature - use S3 URL
-            employeeSignature: data.employeeSignature,
-            // Analytics with requestId
+            attachments: attachmentsPayload,
+            pdf: pdfPayload,
+            employeeSignature: signaturePayload,
             analytics: {
                 ...data.analytics,
                 requestId: requestId
             }
         };
 
-        // Check payload size
-        const dataSize = JSON.stringify(structuredPayload).length;
-        console.log('📦 Structured payload size:', dataSize, 'characters');
-
-        // If payload is too large, create optimized version
-        let payloadToSend = structuredPayload;
-        if (dataSize > 10000000) { // 10MB limit
-            console.warn('⚠️ Payload too large, creating optimized version...');
-            payloadToSend = {
-                ...structuredPayload,
-                // Remove large base64 data but keep metadata
-                attachments: (structuredPayload.attachments || []).map(att => ({
-                    fileName: att.fileName,
-                    fileSize: att.fileSize,
-                    fileType: att.fileType,
-                    s3Url: att.s3Url,
-                    s3Key: att.s3Key
-                })),
-                pdf: structuredPayload.pdf ? {
-                    fileName: structuredPayload.pdf.fileName,
-                    s3Url: structuredPayload.pdf.s3Url,
-                    s3Key: structuredPayload.pdf.s3Key
-                } : null,
-                employeeSignature: structuredPayload.employeeSignature ? {
-                    s3Url: structuredPayload.employeeSignature.s3Url,
-                    s3Key: structuredPayload.employeeSignature.s3Key
-                } : null
-            };
-            console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
+        // Final validation: ensure no base64 in payload
+        const payloadStr = JSON.stringify(structuredPayload);
+        if (payloadStr.includes('base64Content') || payloadStr.includes('mimeType')) {
+            console.error('❌ ERROR: base64Content found in payload!', structuredPayload);
+            throw new Error('Payload contains base64 - this should not happen. S3 uploads may have failed.');
         }
+
+        const dataSize = payloadStr.length;
+        console.log('📦 Payload size:', dataSize, 'characters (S3 URLs only, validated)');
+        console.log('📋 Payload preview:', {
+            attachments: attachmentsPayload.length,
+            pdf: pdfPayload ? pdfPayload.fileName : 'none',
+            signature: signaturePayload ? 'present' : 'none'
+        });
+        
+        // Log actual payload structure for debugging
+        console.log('🔍 Final payload structure:', JSON.stringify(structuredPayload, null, 2).substring(0, 1000));
+        
+        const payloadToSend = structuredPayload;
 
         // Send structured payload
         const response = await fetch(WEBHOOK_URL, {
@@ -731,18 +715,18 @@ async function sendToWebhook(data) {
             hasSignature: structuredPayload.employeeSignature ? 'Yes' : 'No'
         });
         
-        // Log S3 URLs for debugging
+        // Log file info (S3 URLs)
         if (structuredPayload.attachments && structuredPayload.attachments.length > 0) {
-            console.log('📎 Attachment S3 URLs:');
+            console.log('📎 Attachments:', structuredPayload.attachments.length);
             structuredPayload.attachments.forEach((att, idx) => {
                 console.log(`   ${idx + 1}. ${att.fileName}: ${att.s3Url}`);
             });
         }
-        if (structuredPayload.pdf && structuredPayload.pdf.s3Url) {
-            console.log(`📄 PDF S3 URL: ${structuredPayload.pdf.s3Url}`);
+        if (structuredPayload.pdf) {
+            console.log(`📄 PDF: ${structuredPayload.pdf.s3Url}`);
         }
-        if (structuredPayload.employeeSignature && structuredPayload.employeeSignature.s3Url) {
-            console.log(`✍️ Signature S3 URL: ${structuredPayload.employeeSignature.s3Url}`);
+        if (structuredPayload.employeeSignature) {
+            console.log(`✍️ Signature: ${structuredPayload.employeeSignature.s3Url}`);
         }
         ANALYTICS.formSubmissions++;
         return { status: 'success', message: 'Structured data sent to webhook', requestId: requestId };
@@ -848,7 +832,7 @@ async function uploadToS3(file, fileName, contentType) {
     }
 
     const key = `kt-forms/${Date.now()}-${fileName}`;
-    const bucketName = S3_CONFIG.bucketName || 'kt-form-documents';
+    const bucketName = (window.S3_CONFIG && window.S3_CONFIG.bucketName) || 'kt-form-documents';
     const params = {
         Bucket: bucketName,
         Key: key,
@@ -861,20 +845,31 @@ async function uploadToS3(file, fileName, contentType) {
         console.log(`📤 Uploading ${fileName} to S3...`);
         const result = await s3Client.upload(params).promise();
 
-        // Construct the regional S3 URL
-        const bucketName = S3_CONFIG.bucketName || 'kt-form-documents';
-        const region = S3_CONFIG.region || 'us-east-1';
-        const regionalUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${result.Key}`;
+        // Use presigned URL so webhook can access private objects (e.g. 7 days)
+        const signedUrl = s3Client.getSignedUrl('getObject', {
+            Bucket: result.Bucket,
+            Key: result.Key,
+            Expires: 60 * 60 * 24 * 7  // 7 days
+        });
 
-        console.log(`✅ Upload successful: ${regionalUrl}`);
+        console.log(`✅ Upload successful, presigned URL generated`);
+        console.log(`   📍 S3 Key: ${result.Key}`);
+        console.log(`   🔗 Presigned URL: ${signedUrl.substring(0, 80)}...`);
         return {
-            url: regionalUrl,      // Return the regional S3 object URL
-            key: result.Key,       // Return the key from S3 response
-            bucket: result.Bucket  // Return the bucket from S3 response
+            url: signedUrl,
+            key: result.Key,
+            bucket: result.Bucket
         };
     } catch (error) {
         console.error(`❌ S3 upload failed for ${fileName}:`, error);
-        throw error;
+        console.error(`   Error details:`, {
+            message: error.message,
+            code: error.code,
+            statusCode: error.statusCode,
+            bucket: bucketName,
+            region: (window.S3_CONFIG && window.S3_CONFIG.region) || 'us-east-1'
+        });
+        throw new Error(`S3 upload failed for ${fileName}: ${error.message || error.code || 'Unknown error'}`);
     }
 }
 

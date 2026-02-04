@@ -49,16 +49,20 @@
 
 ### **Step 3: Update Configuration**
 
-Edit `script.js and update the S3 configuration:
+Copy the example config and add your credentials:
 
-```javascript
-const S3_CONFIG = {
-    region: 'us-east-1', // Your bucket region
-    bucketName: 'kt-form-documents', // Your bucket name
-    accessKeyId: 'YOUR_ACCESS_KEY_ID', // From Step 2
-    secretAccessKey: 'YOUR_SECRET_ACCESS_KEY' // From Step 2
-};
+```bash
+cp config.example.js config.js
 ```
+
+Then edit `config.js` and set:
+
+- `region` – e.g. `'us-east-1'`
+- `bucketName` – e.g. `'kt-form-documents'`
+- `accessKeyId` – from Step 2
+- `secretAccessKey` – from Step 2
+
+If `config.js` is missing, the app loads with a stub (no S3). Use `config.example.js` as a template.
 
 ### **Step 4: CORS Configuration**
 

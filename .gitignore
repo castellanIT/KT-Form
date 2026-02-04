@@ -9,7 +9,7 @@ npm-debug.log*
 .env.test.local
 .env.production.local
 
-# AWS Credentials (SECURITY)
+# AWS Credentials (SECURITY) - NEVER commit config.js with real credentials
 config.js
 
 # IDE
