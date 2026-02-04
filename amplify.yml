@@ -6,7 +6,7 @@ frontend:
         - npm ci
     build:
       commands:
-        - echo "No build process needed for static files"
+        - node scripts/generate-config.js
   artifacts:
     baseDirectory: .
     files:

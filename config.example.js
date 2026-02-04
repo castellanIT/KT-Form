@@ -1,8 +1,11 @@
 /**
- * Example S3 configuration. Copy to config.js and fill in your AWS credentials.
- * See S3_SETUP.md for bucket and IAM setup.
+ * Example S3 configuration.
  *
- * cp config.example.js config.js
+ * Local: copy to config.js and fill in credentials.
+ *   cp config.example.js config.js
+ *
+ * Amplify: config.js is generated at build from Environment variables:
+ *   accessKeyId, secretAccessKey, (optional) region, bucketName
  */
 var S3_CONFIG = {
     region: 'us-east-1',
