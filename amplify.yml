@@ -10,7 +10,7 @@ frontend:
         - cd $CODEBUILD_SRC_DIR/KT-Form
         - node scripts/generate-config.js
   artifacts:
-    baseDirectory: KT-Form
+    baseDirectory: .
     files:
       - '**/*'
   cache:
