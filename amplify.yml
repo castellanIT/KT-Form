@@ -3,14 +3,14 @@ frontend:
   phases:
     preBuild:
       commands:
-        - cd $CODEBUILD_SRC_DIR
+        - cd $CODEBUILD_SRC_DIR/KT-Form
         - '[ -f package-lock.json ] && npm ci || npm install'
     build:
       commands:
-        - cd $CODEBUILD_SRC_DIR
+        - cd $CODEBUILD_SRC_DIR/KT-Form
         - node scripts/generate-config.js
   artifacts:
-    baseDirectory: .
+    baseDirectory: KT-Form
     files:
       - '**/*'
   cache:
