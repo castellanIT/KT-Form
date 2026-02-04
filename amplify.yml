@@ -3,10 +3,10 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        - cd ${CODEBUILD_SRC_DIR:-.} && npm ci
     build:
       commands:
-        - node scripts/generate-config.js
+        - cd ${CODEBUILD_SRC_DIR:-.} && node scripts/generate-config.js
   artifacts:
     baseDirectory: .
     files:
