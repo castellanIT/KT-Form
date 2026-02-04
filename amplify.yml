@@ -4,7 +4,7 @@ frontend:
     preBuild:
       commands:
         - cd $CODEBUILD_SRC_DIR
-        - npm ci
+        - '[ -f package-lock.json ] && npm ci || npm install'
     build:
       commands:
         - cd $CODEBUILD_SRC_DIR
