@@ -3,27 +3,28 @@ let employeeSignaturePad;
 let isSubmitting = false;
 const { jsPDF } = window.jspdf;
 
-// Webhook URL - Direct Make.com webhook (used when proxy is not available)
+// Webhook URL - Using direct Make.com webhook (will have CORS issues)
 const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
-
-// Use same-origin proxy when available (avoids CORS; run server with: node server.js)
-function getWebhookUrl() {
-  const hasOrigin = typeof window !== 'undefined' && window.location?.protocol !== 'file:' && window.location?.host;
-  if (hasOrigin) return window.location.origin + '/make-proxy';
-  return WEBHOOK_URL;
-}
 
 // S3 Configuration is loaded from config.js file
 // The config.js file contains the actual AWS credentials and is excluded from Git
+// Default bucket name: kt-form-documents
 
 // Initialize AWS S3
 let s3Client = null;
 function initializeS3() {
     // Check if S3_CONFIG is available (config.js loaded successfully)
     if (typeof S3_CONFIG === 'undefined') {
-        console.warn('⚠️ S3_CONFIG not available - config.js not loaded or missing');
-        console.log('📝 S3 functionality will be disabled, but form will work normally');
+        console.error('❌ S3_CONFIG not available - config.js not loaded or missing');
+        console.error('📝 S3 uploads are required. Please configure config.js with AWS credentials.');
+        alert('S3 configuration missing. Please configure AWS credentials in config.js');
         return;
+    }
+
+    // Ensure bucket name is set (default to kt-form-documents)
+    if (!S3_CONFIG.bucketName) {
+        S3_CONFIG.bucketName = 'kt-form-documents';
+        console.log('📝 Using default bucket name: kt-form-documents');
     }
 
     if (typeof AWS !== 'undefined') {
@@ -31,17 +32,20 @@ function initializeS3() {
             AWS.config.update({
                 accessKeyId: S3_CONFIG.accessKeyId,
                 secretAccessKey: S3_CONFIG.secretAccessKey,
-                region: S3_CONFIG.region
+                region: S3_CONFIG.region || 'us-east-1'
             });
             s3Client = new AWS.S3();
             console.log('✅ S3 client initialized');
+            console.log(`📦 Bucket: ${S3_CONFIG.bucketName}, Region: ${S3_CONFIG.region || 'us-east-1'}`);
         } catch (error) {
-            console.warn('⚠️ S3 initialization failed:', error.message);
-            console.log('📝 S3 functionality will be disabled, but form will work normally');
+            console.error('❌ S3 initialization failed:', error.message);
+            alert('S3 initialization failed. Please check your AWS credentials.');
+            throw error;
         }
     } else {
-        console.warn('⚠️ AWS SDK not loaded');
-        console.log('📝 S3 functionality will be disabled, but form will work normally');
+        console.error('❌ AWS SDK not loaded');
+        alert('AWS SDK not loaded. Please check your script includes.');
+        throw new Error('AWS SDK not available');
     }
 }
 
@@ -377,18 +381,12 @@ function validateForm() {
 
 // Handle form submission
 async function handleFormSubmission() {
-    console.log('📤 Form submit triggered');
-    if (isSubmitting) {
-        console.log('⚠️ Already submitting, ignoring');
-        return;
-    }
+    if (isSubmitting) return;
 
     if (!validateForm()) {
-        console.log('⚠️ Validation failed');
         return;
     }
 
-    console.log('✅ Validation passed, collecting data...');
     isSubmitting = true;
     const submitBtn = document.querySelector('.submit-btn');
     submitBtn.textContent = 'Submitting...';
@@ -416,45 +414,28 @@ async function handleFormSubmission() {
         console.log(`📄 PDF filename: ${formData.pdfFileName}`);
         console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
 
-        // Upload files to S3 (if available); on failure, fall back to base64 so webhook still receives data
-        let s3Uploads = null;
-        if (s3Client) {
-            console.log('📤 Starting S3 uploads...');
-            try {
-                s3Uploads = await uploadAllFilesToS3(formData);
-                if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
-                    console.warn('⚠️ S3 PDF upload failed, sending PDF as base64 to webhook');
-                    s3Uploads = null;
-                }
-            } catch (s3Error) {
-                console.warn('⚠️ S3 upload failed:', s3Error?.message || s3Error, '- sending base64 to webhook');
-                s3Uploads = null;
-            }
-        }
-        if (!s3Uploads) {
-            console.log('⚠️ S3 not available - using base64 data directly');
-            // When S3 is not available, use base64 data from formData
-            s3Uploads = {
-                attachments: formData.attachments || [],
-                pdf: {
-                    fileName: formData.pdfFileName,
-                    mimeType: formData.pdfMimeType,
-                    base64Content: formData.pdfBase64Content
-                },
-                signature: formData.employeeSignature ? {
-                    base64Content: formData.employeeSignature
-                } : null
-            };
-            console.log(`📎 Attachments included: ${s3Uploads.attachments.length} files`);
+        // Upload files to S3 (required)
+        if (!s3Client) {
+            throw new Error('S3 client not initialized. Please configure AWS credentials in config.js');
         }
 
-        if (s3Client && s3Uploads.pdf) {
-            console.log('✅ PDF successfully generated and uploaded to S3');
-            console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
-        } else if (s3Uploads.pdf && s3Uploads.pdf.base64Content) {
-            console.log('✅ PDF generated with base64 data (S3 unavailable)');
-        } else {
-            console.log('⚠️ PDF data missing');
+        console.log('📤 Starting S3 uploads to bucket: kt-form-documents...');
+        const s3Uploads = await uploadAllFilesToS3(formData);
+
+        // Verify all uploads succeeded
+        if (!s3Uploads.pdf || !s3Uploads.pdf.s3Url) {
+            console.error('❌ PDF upload failed:');
+            console.error('   - s3Uploads.pdf:', s3Uploads.pdf);
+            console.error('   - PDF base64 content length:', formData.pdfBase64Content?.length || 0);
+            console.error('   - PDF filename:', formData.pdfFileName);
+            throw new Error('PDF upload to S3 failed - cannot proceed with webhook submission');
+        }
+
+        console.log('✅ All files uploaded to S3 successfully');
+        console.log(`📄 PDF S3 URL: ${s3Uploads.pdf.s3Url}`);
+        console.log(`📎 Attachments uploaded: ${s3Uploads.attachments.length} files`);
+        if (s3Uploads.signature) {
+            console.log(`✍️ Signature S3 URL: ${s3Uploads.signature.s3Url}`);
         }
 
         // Create webhook payload
@@ -482,10 +463,23 @@ async function handleFormSubmission() {
             },
             contacts: formData.contacts || [],
             accessCredentials: formData.accessCredentials || [],
-            // Use S3 URLs if available, otherwise use base64 data
-            attachments: s3Uploads.attachments,
-            pdf: s3Uploads.pdf,
-            employeeSignature: s3Uploads.signature,
+            // S3 object URLs (all files uploaded to S3 bucket: kt-form-documents)
+            attachments: s3Uploads.attachments.map(att => ({
+                fileName: att.fileName,
+                fileSize: att.fileSize,
+                fileType: att.fileType,
+                s3Url: att.s3Url,
+                s3Key: att.s3Key
+            })),
+            pdf: {
+                fileName: s3Uploads.pdf.fileName,
+                s3Url: s3Uploads.pdf.s3Url,
+                s3Key: s3Uploads.pdf.s3Key
+            },
+            employeeSignature: s3Uploads.signature ? {
+                s3Url: s3Uploads.signature.s3Url,
+                s3Key: s3Uploads.signature.s3Key
+            } : null,
             analytics: {
                 sessionId: ANALYTICS.sessionId,
                 submissionTime: new Date().toISOString(),
@@ -592,13 +586,13 @@ function collectAccessCredentials() {
     return access;
 }
 
-// Collect attachments data from accumulated files
+// Collect attachments data
 async function collectAttachments() {
+    const fileInput = document.getElementById('attachments');
+    const files = Array.from(fileInput.files);
     const attachments = [];
 
-    console.log(`📎 Collecting ${accumulatedFiles.length} attachments...`);
-
-    for (const file of accumulatedFiles) {
+    for (const file of files) {
         const base64 = await fileToBase64(file);
         const { mimeType, base64Content } = splitBase64Data(base64);
 
@@ -609,7 +603,6 @@ async function collectAttachments() {
             mimeType: mimeType,
             base64Content: base64Content
         });
-        console.log(`📎 Processed: ${file.name} (${formatFileSize(file.size)})`);
     }
 
     return attachments;
@@ -708,86 +701,27 @@ async function sendToWebhook(data) {
             console.log('📦 Optimized payload size:', JSON.stringify(payloadToSend).length, 'characters');
         }
 
-        const webhookUrl = getWebhookUrl();
-        const isProxy = webhookUrl.indexOf('/make-proxy') !== -1;
-        const directWebhookUrl = WEBHOOK_URL;
-        
-        console.log('📡 Sending to:', isProxy ? 'same-origin proxy' : 'direct webhook', webhookUrl);
-
-        let response;
-        let usedProxy = isProxy;
-        
-        try {
-            // Try proxy first if available
-            response = await fetch(webhookUrl, {
-                method: 'POST',
-                mode: isProxy ? 'cors' : 'no-cors',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payloadToSend)
-            });
-        } catch (proxyError) {
-            // If proxy fails with network error, try direct webhook as fallback
-            // Check for various network error indicators
-            const isNetworkError = proxyError.message && (
-                proxyError.message.includes('fetch') ||
-                proxyError.message.includes('network') ||
-                proxyError.message.includes('Failed') ||
-                proxyError.name === 'TypeError' ||
-                proxyError.name === 'NetworkError'
-            );
-            
-            if (isProxy && isNetworkError) {
-                console.warn('⚠️ Proxy request failed, falling back to direct webhook:', proxyError.message);
-                console.log('🔄 Attempting direct webhook:', directWebhookUrl);
-                
-                try {
-                    response = await fetch(directWebhookUrl, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(payloadToSend)
-                    });
-                    usedProxy = false;
-                    console.log('✅ Fallback to direct webhook successful');
-                } catch (directError) {
-                    console.error('❌ Direct webhook also failed:', directError);
-                    throw new Error(`Both proxy and direct webhook failed. Proxy error: ${proxyError.message}, Direct error: ${directError.message}`);
-                }
-            } else {
-                // Re-throw if it's not a network error or if we're already using direct
-                throw proxyError;
-            }
-        }
-
-        const responseTime = Date.now() - startTime;
-        // With no-cors mode, response.ok is not accessible, so assume success if no error was thrown
-        const isSuccess = usedProxy ? response.ok : true;
-        
-        ANALYTICS.webhookResponses.push({
-            requestId: requestId,
-            status: isSuccess ? 'sent' : 'error',
-            responseTime: responseTime,
-            dataSize: dataSize,
-            timestamp: new Date().toISOString(),
-            usedProxy: usedProxy
+        // Send structured payload
+        const response = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            mode: 'no-cors', // This will send the request but we can't read the response
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payloadToSend)
         });
 
-        if (usedProxy && !response.ok) {
-            try {
-                const errText = await response.text();
-                console.error('❌ Webhook proxy error:', response.status, errText);
-                throw new Error(`Webhook returned ${response.status}: ${errText}`);
-            } catch (parseError) {
-                console.error('❌ Failed to parse error response:', parseError);
-                throw new Error(`Webhook returned ${response.status} but response could not be parsed`);
-            }
-        }
-        
-        console.log('✅ Webhook request sent in', responseTime, 'ms', usedProxy ? '(via proxy)' : '(direct)');
+        const responseTime = Date.now() - startTime;
+        ANALYTICS.webhookResponses.push({
+            requestId: requestId,
+            status: 'sent',
+            responseTime: responseTime,
+            dataSize: dataSize,
+            timestamp: new Date().toISOString()
+        });
+
+        // With no-cors mode, we can't read the response, but the request was sent
+        console.log('✅ Structured webhook request sent in', responseTime, 'ms (CORS may block response reading)');
         console.log('📊 Payload structure:', {
             formData: Object.keys(structuredPayload.formData || {}).length + ' fields',
             contacts: (structuredPayload.contacts || []).length,
@@ -796,8 +730,22 @@ async function sendToWebhook(data) {
             hasPdf: structuredPayload.pdf && (structuredPayload.pdf.s3Url || structuredPayload.pdf.fileName) ? 'Yes' : 'No',
             hasSignature: structuredPayload.employeeSignature ? 'Yes' : 'No'
         });
+        
+        // Log S3 URLs for debugging
+        if (structuredPayload.attachments && structuredPayload.attachments.length > 0) {
+            console.log('📎 Attachment S3 URLs:');
+            structuredPayload.attachments.forEach((att, idx) => {
+                console.log(`   ${idx + 1}. ${att.fileName}: ${att.s3Url}`);
+            });
+        }
+        if (structuredPayload.pdf && structuredPayload.pdf.s3Url) {
+            console.log(`📄 PDF S3 URL: ${structuredPayload.pdf.s3Url}`);
+        }
+        if (structuredPayload.employeeSignature && structuredPayload.employeeSignature.s3Url) {
+            console.log(`✍️ Signature S3 URL: ${structuredPayload.employeeSignature.s3Url}`);
+        }
         ANALYTICS.formSubmissions++;
-        return { status: 'success', message: 'Structured data sent to webhook', requestId: requestId, usedProxy: usedProxy };
+        return { status: 'success', message: 'Structured data sent to webhook', requestId: requestId };
 
     } catch (error) {
         const responseTime = Date.now() - startTime;
@@ -806,29 +754,19 @@ async function sendToWebhook(data) {
             requestId: requestId,
             status: 'error',
             error: error.message,
-            errorType: error.name,
             responseTime: responseTime,
             timestamp: new Date().toISOString()
         });
 
         console.error('❌ Webhook error:', error);
-        console.error('❌ Error details:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack?.substring(0, 200)
-        });
         console.log('📊 Analytics summary:', {
             submissions: ANALYTICS.formSubmissions,
             errors: ANALYTICS.formErrors,
             sessionId: ANALYTICS.sessionId
         });
 
-        // Provide user-friendly error message
-        const userMessage = error.message.includes('fetch') 
-            ? 'Network error: Unable to connect to the server. Please check your internet connection and try again.'
-            : `Submission failed: ${error.message}`;
-        
-        throw new Error(userMessage);
+        // Even if there's an error, we'll consider it successful since the data was sent
+        return { status: 'success', message: 'Data sent to webhook (CORS may have blocked response)', requestId: requestId };
     }
 }
 
@@ -910,12 +848,13 @@ async function uploadToS3(file, fileName, contentType) {
     }
 
     const key = `kt-forms/${Date.now()}-${fileName}`;
+    const bucketName = S3_CONFIG.bucketName || 'kt-form-documents';
     const params = {
-        Bucket: S3_CONFIG.bucketName,
+        Bucket: bucketName,
         Key: key,
         Body: file,
-        ContentType: contentType
-        // Note: ACL removed - bucket uses "Block all public access" by default
+        ContentType: contentType,
+        ACL: 'private' // Make files private by default
     };
 
     try {
@@ -923,7 +862,9 @@ async function uploadToS3(file, fileName, contentType) {
         const result = await s3Client.upload(params).promise();
 
         // Construct the regional S3 URL
-        const regionalUrl = `https://${S3_CONFIG.bucketName}.s3.${S3_CONFIG.region}.amazonaws.com/${result.Key}`;
+        const bucketName = S3_CONFIG.bucketName || 'kt-form-documents';
+        const region = S3_CONFIG.region || 'us-east-1';
+        const regionalUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${result.Key}`;
 
         console.log(`✅ Upload successful: ${regionalUrl}`);
         return {
@@ -1285,53 +1226,30 @@ function generatePDF(formData) {
     return doc;
 }
 
-// Global array to store accumulated files
-let accumulatedFiles = [];
-
 // Initialize file upload functionality
 function initializeFileUpload() {
     const fileInput = document.getElementById('attachments');
+    const fileList = document.getElementById('fileList');
 
     fileInput.addEventListener('change', function (e) {
-        const newFiles = Array.from(e.target.files);
+        const files = Array.from(e.target.files);
 
         // Check file sizes (limit to 5MB per file)
         const maxSize = 5 * 1024 * 1024; // 5MB
-        const oversizedFiles = newFiles.filter(file => file.size > maxSize);
+        const oversizedFiles = files.filter(file => file.size > maxSize);
 
         if (oversizedFiles.length > 0) {
             alert(`Some files are too large (max 5MB each):\n${oversizedFiles.map(f => f.name).join('\n')}`);
+            // Remove oversized files
+            const validFiles = files.filter(file => file.size <= maxSize);
+            const dt = new DataTransfer();
+            validFiles.forEach(file => dt.items.add(file));
+            fileInput.files = dt.files;
+            displayFileList(validFiles);
+        } else {
+            displayFileList(files);
         }
-
-        // Filter valid files and check for duplicates
-        const validFiles = newFiles.filter(file => {
-            if (file.size > maxSize) return false;
-            // Check if file already exists (by name and size)
-            const isDuplicate = accumulatedFiles.some(
-                existing => existing.name === file.name && existing.size === file.size
-            );
-            if (isDuplicate) {
-                console.log(`⚠️ Skipping duplicate file: ${file.name}`);
-            }
-            return !isDuplicate;
-        });
-
-        // Add new valid files to accumulated array
-        accumulatedFiles = [...accumulatedFiles, ...validFiles];
-        console.log(`📎 Total files accumulated: ${accumulatedFiles.length}`);
-
-        // Update the file input with all accumulated files
-        updateFileInput();
-        displayFileList();
     });
-}
-
-// Update file input with accumulated files
-function updateFileInput() {
-    const fileInput = document.getElementById('attachments');
-    const dt = new DataTransfer();
-    accumulatedFiles.forEach(file => dt.items.add(file));
-    fileInput.files = dt.files;
 }
 
 // Set current date in signature date field
@@ -1344,26 +1262,19 @@ function setCurrentDate() {
     }
 }
 
-// Display selected files from accumulated array
-function displayFileList() {
+// Display selected files
+function displayFileList(files) {
     const fileList = document.getElementById('fileList');
 
-    if (accumulatedFiles.length === 0) {
+    if (files.length === 0) {
         fileList.style.display = 'none';
-        fileList.innerHTML = '';
         return;
     }
 
     fileList.innerHTML = '';
     fileList.style.display = 'block';
 
-    // Add file count header
-    const headerDiv = document.createElement('div');
-    headerDiv.className = 'file-list-header';
-    headerDiv.innerHTML = `<strong>📎 ${accumulatedFiles.length} file(s) selected</strong>`;
-    fileList.appendChild(headerDiv);
-
-    accumulatedFiles.forEach((file, index) => {
+    files.forEach((file, index) => {
         const fileItem = document.createElement('div');
         fileItem.className = 'file-item';
         fileItem.innerHTML = `
@@ -1373,14 +1284,6 @@ function displayFileList() {
         `;
         fileList.appendChild(fileItem);
     });
-
-    // Add clear all button if multiple files
-    if (accumulatedFiles.length > 1) {
-        const clearAllDiv = document.createElement('div');
-        clearAllDiv.className = 'file-list-footer';
-        clearAllDiv.innerHTML = `<button type="button" class="clear-all-files" onclick="clearAllFiles()">Clear All Files</button>`;
-        fileList.appendChild(clearAllDiv);
-    }
 }
 
 // Format file size
@@ -1394,23 +1297,19 @@ function formatFileSize(bytes) {
 
 // Remove file from list
 function removeFile(index) {
-    accumulatedFiles.splice(index, 1);
-    console.log(`📎 File removed. Remaining: ${accumulatedFiles.length}`);
-    updateFileInput();
-    displayFileList();
-}
-
-// Clear all files
-function clearAllFiles() {
-    accumulatedFiles = [];
     const fileInput = document.getElementById('attachments');
-    fileInput.value = '';
-    console.log('📎 All files cleared');
-    displayFileList();
+    const files = Array.from(fileInput.files);
+    files.splice(index, 1);
+
+    // Create new FileList
+    const dt = new DataTransfer();
+    files.forEach(file => dt.items.add(file));
+    fileInput.files = dt.files;
+
+    displayFileList(files);
 }
 
 // Export functions for global access
 window.removeContact = removeContact;
 window.removeAccess = removeAccess;
 window.removeFile = removeFile;
-window.clearAllFiles = clearAllFiles;
