@@ -9,8 +9,14 @@ const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i'
 // Use same-origin proxy when available (avoids CORS; run server with: node server.js)
 function getWebhookUrl() {
   const hasOrigin = typeof window !== 'undefined' && window.location?.protocol !== 'file:' && window.location?.host;
-  if (hasOrigin) return window.location.origin + '/make-proxy';
-  return WEBHOOK_URL;
+  const url = hasOrigin ? window.location.origin + '/make-proxy' : WEBHOOK_URL;
+  console.log('🔗 Webhook URL determined:', {
+    hasOrigin: hasOrigin,
+    protocol: window.location?.protocol,
+    host: window.location?.host,
+    url: url
+  });
+  return url;
 }
 
 // S3 Configuration is loaded from config.js file
@@ -502,7 +508,8 @@ async function handleFormSubmission() {
 
     } catch (error) {
         console.error('Form submission error:', error);
-        alert('There was an error submitting the form. Please try again.');
+        const errorMessage = error.message || 'Unknown error occurred';
+        alert(`There was an error submitting the form:\n\n${errorMessage}\n\nPlease check your internet connection and try again. If the problem persists, contact support.`);
     } finally {
         isSubmitting = false;
         submitBtn.textContent = 'Submit Knowledge Transfer Form';
@@ -712,30 +719,95 @@ async function sendToWebhook(data) {
         const isProxy = webhookUrl.indexOf('/make-proxy') !== -1;
         console.log('📡 Sending to:', isProxy ? 'same-origin proxy' : 'direct webhook', webhookUrl);
 
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            mode: isProxy ? 'cors' : 'no-cors',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payloadToSend)
-        });
-
-        const responseTime = Date.now() - startTime;
-        ANALYTICS.webhookResponses.push({
-            requestId: requestId,
-            status: response.ok ? 'sent' : 'error',
-            responseTime: responseTime,
-            dataSize: dataSize,
-            timestamp: new Date().toISOString()
-        });
-
-        if (isProxy && !response.ok) {
-            const errText = await response.text();
-            console.error('❌ Webhook proxy error:', response.status, errText);
-            throw new Error(`Webhook returned ${response.status}: ${errText}`);
+        // Validate webhook URL
+        if (!webhookUrl || (typeof webhookUrl !== 'string') || webhookUrl.trim() === '') {
+            throw new Error('Invalid webhook URL: ' + webhookUrl);
         }
-        console.log('✅ Webhook request sent in', responseTime, 'ms', isProxy ? '(via proxy)' : '');
+
+        let response;
+        const responseTime = Date.now() - startTime;
+        
+        try {
+            // Use 'cors' mode for proxy, 'cors' for direct webhook (will fail if CORS blocked, but we can catch it)
+            // If CORS is blocked, we'll fall back to 'no-cors' mode
+            response = await fetch(webhookUrl, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payloadToSend)
+            });
+
+            // If we got a response, check its status
+            if (!response.ok) {
+                const errText = await response.text().catch(() => 'Unable to read error response');
+                console.error('❌ Webhook error:', response.status, errText);
+                throw new Error(`Webhook returned ${response.status}: ${errText}`);
+            }
+
+            ANALYTICS.webhookResponses.push({
+                requestId: requestId,
+                status: 'sent',
+                responseTime: responseTime,
+                dataSize: dataSize,
+                timestamp: new Date().toISOString()
+            });
+
+            console.log('✅ Webhook request sent in', responseTime, 'ms', isProxy ? '(via proxy)' : '');
+            
+        } catch (fetchError) {
+            // If CORS error, try with 'no-cors' mode for direct webhook
+            if (!isProxy && fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+                console.warn('⚠️ CORS error detected, retrying with no-cors mode...');
+                try {
+                    response = await fetch(webhookUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payloadToSend)
+                    });
+                    
+                    // With no-cors, we can't read the response, but if fetch succeeded, assume it worked
+                    ANALYTICS.webhookResponses.push({
+                        requestId: requestId,
+                        status: 'sent',
+                        responseTime: Date.now() - startTime,
+                        dataSize: dataSize,
+                        timestamp: new Date().toISOString(),
+                        note: 'Sent with no-cors mode (response not readable)'
+                    });
+                    
+                    console.log('✅ Webhook request sent (no-cors mode) in', Date.now() - startTime, 'ms');
+                } catch (noCorsError) {
+                    // Still failed even with no-cors
+                    ANALYTICS.webhookResponses.push({
+                        requestId: requestId,
+                        status: 'error',
+                        error: noCorsError.message,
+                        responseTime: Date.now() - startTime,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    console.error('❌ Webhook failed even with no-cors mode:', noCorsError);
+                    throw new Error(`Failed to send webhook: ${noCorsError.message}. Please check your network connection and webhook URL.`);
+                }
+            } else {
+                // Other errors (network, timeout, etc.)
+                ANALYTICS.webhookResponses.push({
+                    requestId: requestId,
+                    status: 'error',
+                    error: fetchError.message,
+                    responseTime: Date.now() - startTime,
+                    timestamp: new Date().toISOString()
+                });
+                
+                console.error('❌ Webhook error:', fetchError);
+                throw new Error(`Failed to send webhook: ${fetchError.message}. Please check your network connection and webhook URL.`);
+            }
+        }
         console.log('📊 Payload structure:', {
             formData: Object.keys(structuredPayload.formData || {}).length + ' fields',
             contacts: (structuredPayload.contacts || []).length,
