@@ -3,10 +3,12 @@ frontend:
   phases:
     preBuild:
       commands:
-        - cd ${CODEBUILD_SRC_DIR:-.} && npm ci
+        - '[ -f package-lock.json ] || cd ../../..'
+        - npm ci
     build:
       commands:
-        - cd ${CODEBUILD_SRC_DIR:-.} && node scripts/generate-config.js
+        - '[ -f package-lock.json ] || cd ../../..'
+        - node scripts/generate-config.js
   artifacts:
     baseDirectory: .
     files:
