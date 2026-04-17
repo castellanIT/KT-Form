@@ -850,19 +850,16 @@ async function uploadToS3(file, fileName, contentType) {
     const bucketName = (window.S3_CONFIG && window.S3_CONFIG.bucketName) || 'kt-form-documents';
     const region = (window.S3_CONFIG && window.S3_CONFIG.region) || 'us-east-1';
 
-    // Upload with public-read ACL so the file is downloadable without IAM credentials.
-    // Pre-signed URLs signed by ezhumlai fail due to explicit deny on s3:GetObject in the
-    // identity-based policy — public-read bypasses that check via anonymous access.
+    // Upload object (without ACL since the bucket has ACLs disabled via Object Ownership setting)
     const params = {
         Bucket: bucketName,
         Key: key,
         Body: file,
-        ContentType: contentType,
-        ACL: 'public-read'
+        ContentType: contentType
     };
 
     try {
-        console.log(`📤 Uploading ${fileName} to S3 (public-read)...`);
+        console.log(`📤 Uploading ${fileName} to S3...`);
         const result = await s3Client.upload(params).promise();
 
         // Direct public URL — no IAM check, accessible by anyone with the link
