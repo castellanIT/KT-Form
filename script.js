@@ -6,40 +6,47 @@ const { jsPDF } = window.jspdf;
 // Webhook URL - Using direct Make.com webhook (will have CORS issues)
 const WEBHOOK_URL = 'https://hook.us1.make.com/507tywj448d3jkh9jkl4cj8ojcgbii1i';
 
-// S3 is optional. If config.js is loaded and defines window.S3_CONFIG, S3 uploads are used.
-// Otherwise files are sent in the webhook as base64. Bucket name: kt-form-documents
+// S3 config — window.S3_CONFIG must be set by config.js before script.js runs
 window.S3_CONFIG = typeof window.S3_CONFIG !== 'undefined' ? window.S3_CONFIG : null;
 
-// Initialize AWS S3 (optional)
+// Initialize AWS S3
 let s3Client = null;
 function initializeS3() {
-    if (!window.S3_CONFIG || !window.S3_CONFIG.accessKeyId) {
-        console.warn('⚠️ S3 not configured - config.js missing or empty. Files will be sent as base64 in webhook.');
+    console.log('🔧 initializeS3() called');
+    console.log('   window.S3_CONFIG:', window.S3_CONFIG ? '✅ present' : '❌ missing/null');
+    console.log('   typeof AWS:', typeof AWS);
+
+    if (!window.S3_CONFIG) {
+        console.error('❌ window.S3_CONFIG is null — config.js did not load or did not set S3_CONFIG.');
+        return;
+    }
+    if (!window.S3_CONFIG.accessKeyId || window.S3_CONFIG.accessKeyId.startsWith('YOUR_')) {
+        console.error('❌ config.js has placeholder credentials — replace with real AWS keys.');
         return;
     }
 
     const S3_CONFIG = window.S3_CONFIG;
     if (!S3_CONFIG.bucketName) {
         S3_CONFIG.bucketName = 'kt-form-documents';
-        console.log('📝 Using default bucket name: kt-form-documents');
     }
 
-    if (typeof AWS !== 'undefined') {
-        try {
-            AWS.config.update({
-                accessKeyId: S3_CONFIG.accessKeyId,
-                secretAccessKey: S3_CONFIG.secretAccessKey,
-                region: S3_CONFIG.region || 'us-east-1'
-            });
-            s3Client = new AWS.S3();
-            console.log('✅ S3 client initialized');
-            console.log(`📦 Bucket: ${S3_CONFIG.bucketName}, Region: ${S3_CONFIG.region || 'us-east-1'}`);
-        } catch (error) {
-            console.warn('⚠️ S3 initialization failed:', error.message);
-            s3Client = null;
-        }
-    } else {
-        console.error('❌ AWS SDK not loaded - check the CDN URL in index.html. S3 uploads will not work.');
+    if (typeof AWS === 'undefined') {
+        console.error('❌ AWS global not found — aws-sdk.min.js failed to load.');
+        return;
+    }
+
+    try {
+        AWS.config.update({
+            accessKeyId: S3_CONFIG.accessKeyId,
+            secretAccessKey: S3_CONFIG.secretAccessKey,
+            region: S3_CONFIG.region || 'us-east-1'
+        });
+        s3Client = new AWS.S3();
+        console.log('✅ S3 client initialized successfully');
+        console.log(`📦 Bucket: ${S3_CONFIG.bucketName}, Region: ${S3_CONFIG.region || 'us-east-1'}`);
+    } catch (error) {
+        console.error('❌ S3 initialization threw an error:', error.message);
+        s3Client = null;
     }
 }
 
@@ -408,9 +415,17 @@ async function handleFormSubmission() {
         console.log(`📄 PDF filename: ${formData.pdfFileName}`);
         console.log(`📄 PDF base64 content length: ${formData.pdfBase64Content?.length || 0}`);
 
-        // S3 required – we only send S3 object URLs to the webhook (no base64)
+        // S3 required — retry init in case it failed at page load (e.g. timing/cache issue)
         if (!s3Client) {
-            throw new Error('S3 is required. Add AWS credentials in config.js (copy config.example.js and see S3_SETUP.md).');
+            console.warn('⚠️ s3Client null at submission — retrying initializeS3()...');
+            initializeS3();
+        }
+        if (!s3Client) {
+            // Log full diagnostic to help debug
+            console.error('❌ S3 DIAGNOSTIC:');
+            console.error('   window.S3_CONFIG:', JSON.stringify(window.S3_CONFIG));
+            console.error('   typeof AWS:', typeof AWS);
+            throw new Error('S3 failed to initialize. Check console for diagnostics — look for ❌ messages above.');
         }
 
         console.log('📤 Starting S3 uploads...');
