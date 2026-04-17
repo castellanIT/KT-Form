@@ -39,7 +39,7 @@ function initializeS3() {
             s3Client = null;
         }
     } else {
-        console.warn('⚠️ AWS SDK not loaded');
+        console.error('❌ AWS SDK not loaded - check the CDN URL in index.html. S3 uploads will not work.');
     }
 }
 
