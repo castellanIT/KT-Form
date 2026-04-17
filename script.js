@@ -848,30 +848,31 @@ async function uploadToS3(file, fileName, contentType) {
 
     const key = `kt-forms/${Date.now()}-${fileName}`;
     const bucketName = (window.S3_CONFIG && window.S3_CONFIG.bucketName) || 'kt-form-documents';
+    const region = (window.S3_CONFIG && window.S3_CONFIG.region) || 'us-east-1';
+
+    // Upload with public-read ACL so the file is downloadable without IAM credentials.
+    // Pre-signed URLs signed by ezhumlai fail due to explicit deny on s3:GetObject in the
+    // identity-based policy — public-read bypasses that check via anonymous access.
     const params = {
         Bucket: bucketName,
         Key: key,
         Body: file,
         ContentType: contentType,
-        ACL: 'private' // Make files private by default
+        ACL: 'public-read'
     };
 
     try {
-        console.log(`📤 Uploading ${fileName} to S3...`);
+        console.log(`📤 Uploading ${fileName} to S3 (public-read)...`);
         const result = await s3Client.upload(params).promise();
 
-        // Use presigned URL so webhook can access private objects (e.g. 7 days)
-        const signedUrl = s3Client.getSignedUrl('getObject', {
-            Bucket: result.Bucket,
-            Key: result.Key,
-            Expires: 60 * 60 * 24 * 7  // 7 days
-        });
+        // Direct public URL — no IAM check, accessible by anyone with the link
+        const publicUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
 
-        console.log(`✅ Upload successful, presigned URL generated`);
+        console.log(`✅ Upload successful`);
         console.log(`   📍 S3 Key: ${result.Key}`);
-        console.log(`   🔗 Presigned URL: ${signedUrl.substring(0, 80)}...`);
+        console.log(`   🔗 Public URL: ${publicUrl}`);
         return {
-            url: signedUrl,
+            url: publicUrl,
             key: result.Key,
             bucket: result.Bucket
         };
@@ -882,8 +883,11 @@ async function uploadToS3(file, fileName, contentType) {
             code: error.code,
             statusCode: error.statusCode,
             bucket: bucketName,
-            region: (window.S3_CONFIG && window.S3_CONFIG.region) || 'us-east-1'
+            region: region
         });
+        // If public-read is blocked (BlockPublicAcls enabled on bucket), you must either:
+        //   1. Disable Block Public Access on the bucket in AWS Console, OR
+        //   2. Add s3:GetObject Allow to the ezhumlai IAM policy and remove the explicit deny
         throw new Error(`S3 upload failed for ${fileName}: ${error.message || error.code || 'Unknown error'}`);
     }
 }
