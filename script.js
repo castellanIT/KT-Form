@@ -862,14 +862,18 @@ async function uploadToS3(file, fileName, contentType) {
         console.log(`📤 Uploading ${fileName} to S3...`);
         const result = await s3Client.upload(params).promise();
 
-        // Direct public URL — no IAM check, accessible by anyone with the link
-        const publicUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+        // Use presigned URL so webhook can access private objects (e.g. 7 days limit)
+        const signedUrl = s3Client.getSignedUrl('getObject', {
+            Bucket: result.Bucket,
+            Key: result.Key,
+            Expires: 60 * 60 * 24 * 7  // 7 days
+        });
 
         console.log(`✅ Upload successful`);
         console.log(`   📍 S3 Key: ${result.Key}`);
-        console.log(`   🔗 Public URL: ${publicUrl}`);
+        console.log(`   🔗 Presigned URL generated`);
         return {
-            url: publicUrl,
+            url: signedUrl,
             key: result.Key,
             bucket: result.Bucket
         };
