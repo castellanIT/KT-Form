@@ -862,18 +862,14 @@ async function uploadToS3(file, fileName, contentType) {
         console.log(`📤 Uploading ${fileName} to S3...`);
         const result = await s3Client.upload(params).promise();
 
-        // Use presigned URL so webhook can access private objects (e.g. 7 days limit)
-        const signedUrl = s3Client.getSignedUrl('getObject', {
-            Bucket: result.Bucket,
-            Key: result.Key,
-            Expires: 60 * 60 * 24 * 7  // 7 days
-        });
+        const encodedKey = result.Key.split('/').map(part => encodeURIComponent(part)).join('/');
+        const objectUrl = `https://${result.Bucket}.s3.amazonaws.com/${encodedKey}`;
 
         console.log(`✅ Upload successful`);
         console.log(`   📍 S3 Key: ${result.Key}`);
-        console.log(`   🔗 Presigned URL generated`);
+        console.log(`   🔗 Object URL generated`);
         return {
-            url: signedUrl,
+            url: objectUrl,
             key: result.Key,
             bucket: result.Bucket
         };
