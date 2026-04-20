@@ -862,14 +862,20 @@ async function uploadToS3(file, fileName, contentType) {
         console.log(`📤 Uploading ${fileName} to S3...`);
         const result = await s3Client.upload(params).promise();
 
+        const signedUrl = s3Client.getSignedUrl('getObject', {
+            Bucket: result.Bucket,
+            Key: result.Key,
+            Expires: 60 * 60 * 24 * 7
+        });
         const encodedKey = result.Key.split('/').map(part => encodeURIComponent(part)).join('/');
         const objectUrl = `https://${result.Bucket}.s3.amazonaws.com/${encodedKey}`;
 
         console.log(`✅ Upload successful`);
         console.log(`   📍 S3 Key: ${result.Key}`);
-        console.log(`   🔗 Object URL generated`);
+        console.log(`   🔗 Presigned URL generated`);
         return {
-            url: objectUrl,
+            url: signedUrl,
+            objectUrl: objectUrl,
             key: result.Key,
             bucket: result.Bucket
         };
