@@ -5,10 +5,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const accessKeyId = process.env.accessKeyId || 'AKIA35BCK6ZHYKA7V2G2';
-const secretAccessKey = process.env.secretAccessKey || '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';
+const accessKeyId = process.env.accessKeyId || '';
+const secretAccessKey = process.env.secretAccessKey || '';
 const region = process.env.region || process.env.AWS_REGION || 'us-east-1';
 const bucketName = process.env.bucketName || 'kt-form-documents';
+
+if (!accessKeyId || !secretAccessKey) {
+    console.warn('Warning: accessKeyId/secretAccessKey not set in env. Set Amplify env vars before build.');
+}
 
 const config = `/**
  * S3 config generated from Amplify environment variables (do not edit in repo)
